@@ -68,6 +68,17 @@ def serialize_waha_chat(chat):
     }
 
 
+def _sort_chats_newest_first(chats):
+    def key(chat):
+        value = chat.get("timestamp") or chat.get("lastMessage", {}).get("timestamp") or 0
+        try:
+            return int(value)
+        except Exception:
+            return 0
+
+    return sorted(chats, key=key, reverse=True)
+
+
 def _local_chats_from_messages(limit=300):
     latest = Message.query.order_by(Message.created_at.desc()).limit(limit).all()
     seen = set()
@@ -99,10 +110,13 @@ def _sync_chat_rows(chats):
         if not contact:
             contact = Contact(
                 chat_id=chat_id,
-                permission="default",
-                reply_mode="manual_only" if is_group else "ai_draft",
+                permission="blocked",
+                reply_mode="disabled",
             )
             db.session.add(contact)
+        elif contact.permission == "default":
+            contact.permission = "blocked"
+            contact.reply_mode = "disabled"
         contact.name = chat.get("name") or _name_from_waha(chat, chat_id)
         contact.type = "group" if is_group else "private"
         synced += 1
@@ -123,7 +137,8 @@ def list_waha_chats():
         limit = int(request.args.get("limit", 100))
         offset = int(request.args.get("offset", 0))
         chats = waha_service.get_chats(limit=limit, offset=offset)
-        return jsonify([serialize_waha_chat(chat) for chat in chats if _chat_id_from_waha(chat)])
+        rows = [serialize_waha_chat(chat) for chat in _sort_chats_newest_first(chats) if _chat_id_from_waha(chat)]
+        return jsonify(rows)
     except Exception as exc:
         if request.args.get("fallback", "true").lower() in ("1", "true", "yes", "on"):
             return jsonify({

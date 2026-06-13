@@ -32,8 +32,8 @@ def get_contact_for_message(message):
         chat_id=message.chat_id,
         name=message.sender_name,
         type="group" if message.is_group else "private",
-        permission="default",
-        reply_mode="manual_only" if message.is_group else "ai_draft",
+        permission="blocked",
+        reply_mode="disabled",
     )
     db.session.add(contact)
     db.session.commit()

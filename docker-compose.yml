@@ -11,7 +11,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-too}
       DATABASE_URL: sqlite:///whatsapp_ai.db
-      WAHA_BASE_URL: ${WAHA_BASE_URL:-http://103.210.121.29:3000}
+      WAHA_BASE_URL: ${WAHA_BASE_URL:-http://127.0.0.1:3000}
       WAHA_API_KEY: ${WAHA_API_KEY:-arisdev09}
       WAHA_SESSION: ${WAHA_SESSION:-default}
       # Dalam bridge network Linux, akses service host lewat host.docker.internal.
