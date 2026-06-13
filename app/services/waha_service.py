@@ -16,45 +16,65 @@ class WahaService:
     def _headers(self):
         return {"X-Api-Key": self._config()["api_key"], "Content-Type": "application/json"}
 
+    def _get_json(self, url, *, params=None, timeout=12):
+        try:
+            response = requests.get(url, headers=self._headers(), params=params, timeout=timeout)
+        except requests.Timeout as exc:
+            raise RuntimeError(f"WAHA timeout saat mengakses {url}. Cek waha_base_url, firewall, session, dan apakah WAHA hidup.") from exc
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Gagal menghubungi WAHA {url}: {exc}") from exc
+
+        if response.status_code >= 400:
+            body = response.text[:300] if response.text else ""
+            raise RuntimeError(f"WAHA HTTP {response.status_code} untuk {url}. {body}")
+        return response.json() if response.text else {}
+
+    def _list_from_response(self, data):
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("data", "chats", "items", "results"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return value
+        return []
+
     def get_sessions(self):
         cfg = self._config()
-        response = requests.get(f"{cfg['base_url']}/api/sessions", headers=self._headers(), timeout=15)
-        response.raise_for_status()
-        return response.json()
+        return self._get_json(f"{cfg['base_url']}/api/sessions", timeout=12)
 
     def get_status(self):
         cfg = self._config()
         url = f"{cfg['base_url']}/api/sessions/{cfg['session']}"
-        response = requests.get(url, headers=self._headers(), timeout=15)
-        response.raise_for_status()
-        return response.json()
+        return self._get_json(url, timeout=12)
 
     def get_chats(self, limit=100, offset=0):
         cfg = self._config()
-        url = f"{cfg['base_url']}/api/{cfg['session']}/chats"
-        response = requests.get(
-            url,
-            headers=self._headers(),
-            params={"limit": limit, "offset": offset},
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data if isinstance(data, list) else data.get("data", data)
+        params = {"limit": limit, "offset": offset}
+        errors = []
+        candidates = [
+            (f"{cfg['base_url']}/api/{cfg['session']}/chats", params),
+            (f"{cfg['base_url']}/api/chats", {**params, "session": cfg["session"]}),
+        ]
+        for url, request_params in candidates:
+            try:
+                return self._list_from_response(self._get_json(url, params=request_params, timeout=12))
+            except RuntimeError as exc:
+                errors.append(str(exc))
+                if "HTTP 404" not in str(exc):
+                    break
+        raise RuntimeError("Tidak bisa mengambil daftar chat WAHA. " + " | ".join(errors))
 
     def get_chat_messages(self, chat_id, limit=50, offset=0):
         cfg = self._config()
         safe_chat_id = quote(chat_id, safe="")
         url = f"{cfg['base_url']}/api/{cfg['session']}/chats/{safe_chat_id}/messages"
-        response = requests.get(
+        data = self._get_json(
             url,
-            headers=self._headers(),
             params={"limit": limit, "offset": offset, "downloadMedia": "false"},
-            timeout=30,
+            timeout=12,
         )
-        response.raise_for_status()
-        data = response.json()
-        return data if isinstance(data, list) else data.get("data", data)
+        return self._list_from_response(data)
 
     def send_text(self, chat_id, text):
         cfg = self._config()

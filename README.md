@@ -187,8 +187,12 @@ curl -X POST http://localhost:5000/api/scheduled ^
 - `POST /api/auth/login`
 - `GET/PUT /api/settings`
 - `GET/POST /api/contacts`
+- `GET /api/contacts/waha`
+- `POST /api/contacts/sync-waha`
 - `GET/PUT/DELETE /api/contacts/<id>`
 - `GET /api/messages`
+- `GET /api/messages/waha-chat/<chat_id>`
+- `POST /api/messages/send-to-chat`
 - `GET /api/messages/<id>`
 - `GET /api/messages/chat/<chat_id>`
 - `POST /api/messages/<id>/generate-ai`

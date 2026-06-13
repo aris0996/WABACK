@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..middleware.auth_required import auth_required
-from ..models import Contact
+from ..models import Contact, Message
 from ..services.waha_service import waha_service
 
 contacts_bp = Blueprint("contacts", __name__)
@@ -68,6 +68,47 @@ def serialize_waha_chat(chat):
     }
 
 
+def _local_chats_from_messages(limit=300):
+    latest = Message.query.order_by(Message.created_at.desc()).limit(limit).all()
+    seen = set()
+    chats = []
+    for message in latest:
+        if message.chat_id in seen:
+            continue
+        seen.add(message.chat_id)
+        chats.append({
+            "chat_id": message.chat_id,
+            "name": message.sender_name or message.sender_id or message.chat_id,
+            "type": "group" if message.is_group else "private",
+            "unread_count": 0,
+            "timestamp": message.timestamp.isoformat() if message.timestamp else None,
+            "last_message": message.body or "",
+            "source": "local_messages",
+        })
+    return chats
+
+
+def _sync_chat_rows(chats):
+    synced = 0
+    for chat in chats:
+        chat_id = chat.get("chat_id") or _chat_id_from_waha(chat)
+        if not chat_id:
+            continue
+        contact = Contact.query.filter_by(chat_id=chat_id).first()
+        is_group = bool(chat.get("isGroup") or chat.get("type") == "group" or str(chat_id).endswith("@g.us"))
+        if not contact:
+            contact = Contact(
+                chat_id=chat_id,
+                permission="default",
+                reply_mode="manual_only" if is_group else "ai_draft",
+            )
+            db.session.add(contact)
+        contact.name = chat.get("name") or _name_from_waha(chat, chat_id)
+        contact.type = "group" if is_group else "private"
+        synced += 1
+    return synced
+
+
 @contacts_bp.get("")
 @auth_required
 def list_contacts():
@@ -84,6 +125,12 @@ def list_waha_chats():
         chats = waha_service.get_chats(limit=limit, offset=offset)
         return jsonify([serialize_waha_chat(chat) for chat in chats if _chat_id_from_waha(chat)])
     except Exception as exc:
+        if request.args.get("fallback", "true").lower() in ("1", "true", "yes", "on"):
+            return jsonify({
+                "source": "local_messages",
+                "warning": str(exc),
+                "items": _local_chats_from_messages(),
+            })
         return jsonify({"error": "waha_chats_failed", "message": str(exc)}), 502
 
 
@@ -92,27 +139,16 @@ def list_waha_chats():
 def sync_waha_chats():
     try:
         chats = waha_service.get_chats(limit=int(request.args.get("limit", 300)), offset=0)
-        synced = 0
-        for chat in chats:
-            chat_id = _chat_id_from_waha(chat)
-            if not chat_id:
-                continue
-            contact = Contact.query.filter_by(chat_id=chat_id).first()
-            is_group = bool(chat.get("isGroup") or str(chat_id).endswith("@g.us"))
-            if not contact:
-                contact = Contact(
-                    chat_id=chat_id,
-                    permission="default",
-                    reply_mode="manual_only" if is_group else "ai_draft",
-                )
-                db.session.add(contact)
-            contact.name = _name_from_waha(chat, chat_id)
-            contact.type = "group" if is_group else "private"
-            synced += 1
+        synced = _sync_chat_rows(chats)
         db.session.commit()
-        return jsonify({"ok": True, "synced": synced})
+        return jsonify({"ok": True, "synced": synced, "source": "waha"})
     except Exception as exc:
         db.session.rollback()
+        local_chats = _local_chats_from_messages()
+        if local_chats:
+            synced = _sync_chat_rows(local_chats)
+            db.session.commit()
+            return jsonify({"ok": True, "synced": synced, "source": "local_messages", "warning": str(exc)})
         return jsonify({"error": "waha_sync_failed", "message": str(exc)}), 502
 
 
