@@ -25,21 +25,4 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./backend/instance:/app/instance
-
-  flutter-web:
-    build:
-      context: ../whatsapp_ai
-      dockerfile: ../backend/docker/flutter-web.Dockerfile
-      args:
-        BACKEND_BASE_URL: ${FLUTTER_BACKEND_BASE_URL:-}
-        RELAY_URL: ${FLUTTER_RELAY_URL:-ws://streamdeck.arisdev.my.id/ws}
-        RELAY_TOKEN: ${FLUTTER_RELAY_TOKEN:-@arisdev09}
-        RELAY_DEVICE_ID: ${FLUTTER_RELAY_DEVICE_ID:-phone-aris}
-        BASE_HREF: ${FLUTTER_BASE_HREF:-/whatsapp-ai/}
-    container_name: whatsapp-ai-web
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:5080:80"
-    depends_on:
-      - backend
+      - ./instance:/app/instance

@@ -49,15 +49,21 @@ PORT=5000
 
 Settings WAHA, Ollama, dan relay disimpan di database lewat `GET/PUT /api/settings`.
 
-## Flutter Install
+## Flutter Client Terpisah
 
 ```bash
-cd flutter_app
+cd ../whatsapp_ai
 flutter pub get
 flutter run
 ```
 
-Di login screen, gunakan backend URL `http://localhost:5000` untuk desktop/web lokal. Jika menjalankan di Android emulator, gunakan `http://10.0.2.2:5000`.
+Flutter tidak ikut Docker backend. Di login screen, gunakan backend URL sesuai lokasi:
+
+- Lokal backend non-Docker: `http://localhost:5000`
+- Lokal backend Docker: `http://127.0.0.1:5050`
+- Server Apache ProxyPass: `https://streamdeck.arisdev.my.id`
+
+Flutter client akan memanggil endpoint `/api/...` lewat backend URL tersebut.
 
 ## WAHA Webhook
 
