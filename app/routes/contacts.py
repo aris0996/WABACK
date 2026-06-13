@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..middleware.auth_required import auth_required
 from ..models import Contact
+from ..services.waha_service import waha_service
 
 contacts_bp = Blueprint("contacts", __name__)
 
@@ -33,11 +34,86 @@ def apply(contact, payload):
         contact.max_chars_override = payload["max_chars_override"]
 
 
+def _chat_id_from_waha(chat):
+    if not isinstance(chat, dict):
+        return None
+    raw_id = chat.get("id") or chat.get("chatId")
+    if isinstance(raw_id, dict):
+        return raw_id.get("_serialized") or raw_id.get("user")
+    return raw_id
+
+
+def _name_from_waha(chat, chat_id):
+    return (
+        chat.get("name")
+        or chat.get("pushName")
+        or chat.get("formattedTitle")
+        or chat.get("contact", {}).get("name")
+        or chat.get("contact", {}).get("pushname")
+        or chat_id
+    )
+
+
+def serialize_waha_chat(chat):
+    chat_id = _chat_id_from_waha(chat)
+    last_message = chat.get("lastMessage") or {}
+    return {
+        "chat_id": chat_id,
+        "name": _name_from_waha(chat, chat_id),
+        "type": "group" if chat.get("isGroup") or (chat_id and str(chat_id).endswith("@g.us")) else "private",
+        "unread_count": chat.get("unreadCount") or chat.get("unread_count") or 0,
+        "timestamp": chat.get("timestamp") or last_message.get("timestamp"),
+        "last_message": last_message.get("body") or last_message.get("text") or chat.get("lastMessageText") or "",
+        "raw": chat,
+    }
+
+
 @contacts_bp.get("")
 @auth_required
 def list_contacts():
     contacts = Contact.query.order_by(Contact.updated_at.desc()).all()
     return jsonify([serialize(item) for item in contacts])
+
+
+@contacts_bp.get("/waha")
+@auth_required
+def list_waha_chats():
+    try:
+        limit = int(request.args.get("limit", 100))
+        offset = int(request.args.get("offset", 0))
+        chats = waha_service.get_chats(limit=limit, offset=offset)
+        return jsonify([serialize_waha_chat(chat) for chat in chats if _chat_id_from_waha(chat)])
+    except Exception as exc:
+        return jsonify({"error": "waha_chats_failed", "message": str(exc)}), 502
+
+
+@contacts_bp.post("/sync-waha")
+@auth_required
+def sync_waha_chats():
+    try:
+        chats = waha_service.get_chats(limit=int(request.args.get("limit", 300)), offset=0)
+        synced = 0
+        for chat in chats:
+            chat_id = _chat_id_from_waha(chat)
+            if not chat_id:
+                continue
+            contact = Contact.query.filter_by(chat_id=chat_id).first()
+            is_group = bool(chat.get("isGroup") or str(chat_id).endswith("@g.us"))
+            if not contact:
+                contact = Contact(
+                    chat_id=chat_id,
+                    permission="default",
+                    reply_mode="manual_only" if is_group else "ai_draft",
+                )
+                db.session.add(contact)
+            contact.name = _name_from_waha(chat, chat_id)
+            contact.type = "group" if is_group else "private"
+            synced += 1
+        db.session.commit()
+        return jsonify({"ok": True, "synced": synced})
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"error": "waha_sync_failed", "message": str(exc)}), 502
 
 
 @contacts_bp.post("")

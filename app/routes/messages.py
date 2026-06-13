@@ -29,6 +29,21 @@ def with_drafts(message):
     return data
 
 
+def serialize_waha_message(item):
+    return {
+        "id": item.get("id") or item.get("_data", {}).get("id", {}).get("id"),
+        "chat_id": item.get("chatId") or item.get("to") or item.get("from"),
+        "sender_id": item.get("from"),
+        "body": item.get("body") or item.get("text") or "",
+        "from_me": bool(item.get("fromMe")),
+        "timestamp": item.get("timestamp"),
+        "ack": item.get("ack"),
+        "ack_name": item.get("ackName"),
+        "has_media": bool(item.get("hasMedia")),
+        "raw": item,
+    }
+
+
 @messages_bp.get("")
 @auth_required
 def list_messages():
@@ -38,6 +53,38 @@ def list_messages():
         query = query.filter_by(chat_id=chat_id)
     items = query.order_by(Message.created_at.desc()).limit(int(request.args.get("limit", 100))).all()
     return jsonify([serialize_message(item) for item in items])
+
+
+@messages_bp.get("/waha-chat/<path:chat_id>")
+@auth_required
+def waha_chat_history(chat_id):
+    try:
+        limit = int(request.args.get("limit", 50))
+        offset = int(request.args.get("offset", 0))
+        items = waha_service.get_chat_messages(chat_id, limit=limit, offset=offset)
+        return jsonify([serialize_waha_message(item) for item in items])
+    except Exception as exc:
+        return jsonify({"error": "waha_messages_failed", "message": str(exc)}), 502
+
+
+@messages_bp.post("/send-to-chat")
+@auth_required
+def send_to_chat():
+    payload = request.get_json(silent=True) or {}
+    chat_id = payload.get("chat_id")
+    text = payload.get("text")
+    if not chat_id or not text:
+        return jsonify({"error": "validation_error", "message": "chat_id dan text wajib diisi"}), 400
+    try:
+        waha_service.send_text(chat_id, text)
+        db.session.add(MessageLog(direction="out", chat_id=chat_id, message=text, status="sent"))
+        db.session.commit()
+        relay_client.send_event(get_settings()["relay_flutter_target_device_id"], "message_replied", {"chat_id": chat_id})
+        return jsonify({"ok": True})
+    except Exception as exc:
+        db.session.add(MessageLog(direction="out", chat_id=chat_id, message=text, status="error", error=str(exc)))
+        db.session.commit()
+        return jsonify({"error": "waha_send_failed", "message": str(exc)}), 502
 
 
 @messages_bp.get("/<int:message_id>")
@@ -56,8 +103,11 @@ def chat_history(chat_id):
 @messages_bp.post("/<int:message_id>/generate-ai")
 @auth_required
 def generate_ai(message_id):
-    draft = generate_ai_draft(Message.query.get_or_404(message_id))
-    return jsonify(serialize_draft(draft))
+    try:
+        draft = generate_ai_draft(Message.query.get_or_404(message_id))
+        return jsonify(serialize_draft(draft))
+    except Exception as exc:
+        return jsonify({"error": "ai_generate_failed", "message": str(exc)}), 502
 
 
 @messages_bp.post("/<int:message_id>/send")

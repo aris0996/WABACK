@@ -1,4 +1,5 @@
 import time
+from urllib.parse import quote
 import requests
 from .settings_service import get_settings
 
@@ -27,6 +28,33 @@ class WahaService:
         response = requests.get(url, headers=self._headers(), timeout=15)
         response.raise_for_status()
         return response.json()
+
+    def get_chats(self, limit=100, offset=0):
+        cfg = self._config()
+        url = f"{cfg['base_url']}/api/{cfg['session']}/chats"
+        response = requests.get(
+            url,
+            headers=self._headers(),
+            params={"limit": limit, "offset": offset},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, list) else data.get("data", data)
+
+    def get_chat_messages(self, chat_id, limit=50, offset=0):
+        cfg = self._config()
+        safe_chat_id = quote(chat_id, safe="")
+        url = f"{cfg['base_url']}/api/{cfg['session']}/chats/{safe_chat_id}/messages"
+        response = requests.get(
+            url,
+            headers=self._headers(),
+            params={"limit": limit, "offset": offset, "downloadMedia": "false"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, list) else data.get("data", data)
 
     def send_text(self, chat_id, text):
         cfg = self._config()
