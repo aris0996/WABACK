@@ -1,0 +1,45 @@
+services:
+  backend:
+    build:
+      context: .
+    container_name: whatsapp-ai-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5050:5000"
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-too}
+      DATABASE_URL: sqlite:///whatsapp_ai.db
+      WAHA_BASE_URL: ${WAHA_BASE_URL:-http://103.210.121.29:3000}
+      WAHA_API_KEY: ${WAHA_API_KEY:-arisdev09}
+      WAHA_SESSION: ${WAHA_SESSION:-default}
+      # Dalam bridge network Linux, akses service host lewat host.docker.internal.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      RELAY_SERVER_URL: ${RELAY_SERVER_URL:-ws://streamdeck.arisdev.my.id/ws}
+      RELAY_TOKEN: ${RELAY_TOKEN:-@arisdev09}
+      RELAY_BACKEND_DEVICE_ID: ${RELAY_BACKEND_DEVICE_ID:-backend-waha-ai}
+      RELAY_FLUTTER_TARGET_DEVICE_ID: ${RELAY_FLUTTER_TARGET_DEVICE_ID:-phone-aris}
+      SYNC_ENV_SETTINGS_ON_BOOT: ${SYNC_ENV_SETTINGS_ON_BOOT:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/instance:/app/instance
+
+  flutter-web:
+    build:
+      context: ../whatsapp_ai
+      dockerfile: ../backend/docker/flutter-web.Dockerfile
+      args:
+        BACKEND_BASE_URL: ${FLUTTER_BACKEND_BASE_URL:-}
+        RELAY_URL: ${FLUTTER_RELAY_URL:-ws://streamdeck.arisdev.my.id/ws}
+        RELAY_TOKEN: ${FLUTTER_RELAY_TOKEN:-@arisdev09}
+        RELAY_DEVICE_ID: ${FLUTTER_RELAY_DEVICE_ID:-phone-aris}
+        BASE_HREF: ${FLUTTER_BASE_HREF:-/whatsapp-ai/}
+    container_name: whatsapp-ai-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5080:80"
+    depends_on:
+      - backend

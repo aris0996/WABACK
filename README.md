@@ -20,7 +20,7 @@ Backend default berjalan di `http://localhost:5000`. Database SQLite otomatis di
 
 ## Docker
 
-Dari root project:
+Dari folder `backend/`:
 
 ```bash
 cp .env.docker.example .env

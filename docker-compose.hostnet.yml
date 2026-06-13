@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: .
+    container_name: whatsapp-ai-backend
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-too}
+      DATABASE_URL: sqlite:///whatsapp_ai.db
+      WAHA_BASE_URL: ${WAHA_BASE_URL:-http://103.210.121.29:3000}
+      WAHA_API_KEY: ${WAHA_API_KEY:-arisdev09}
+      WAHA_SESSION: ${WAHA_SESSION:-default}
+      # Host-network mode: 127.0.0.1 adalah host server, cocok untuk Ollama lokal.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://127.0.0.1:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      RELAY_SERVER_URL: ${RELAY_SERVER_URL:-ws://streamdeck.arisdev.my.id/ws}
+      RELAY_TOKEN: ${RELAY_TOKEN:-@arisdev09}
+      RELAY_BACKEND_DEVICE_ID: ${RELAY_BACKEND_DEVICE_ID:-backend-waha-ai}
+      RELAY_FLUTTER_TARGET_DEVICE_ID: ${RELAY_FLUTTER_TARGET_DEVICE_ID:-phone-aris}
+      SYNC_ENV_SETTINGS_ON_BOOT: ${SYNC_ENV_SETTINGS_ON_BOOT:-false}
+    volumes:
+      - ./backend/instance:/app/instance
+    command: ["gunicorn", "--workers", "2", "--threads", "4", "--timeout", "180", "--bind", "127.0.0.1:5050", "run:app"]
