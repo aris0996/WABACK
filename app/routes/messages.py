@@ -44,6 +44,17 @@ def serialize_waha_message(item):
     }
 
 
+def _sort_messages_oldest_first(items):
+    def key(item):
+        value = item.get("timestamp") or item.get("t") or item.get("_data", {}).get("t") or 0
+        try:
+            return int(value)
+        except Exception:
+            return 0
+
+    return sorted(items, key=key)
+
+
 @messages_bp.get("")
 @auth_required
 def list_messages():
@@ -62,7 +73,7 @@ def waha_chat_history(chat_id):
         limit = int(request.args.get("limit", 50))
         offset = int(request.args.get("offset", 0))
         items = waha_service.get_chat_messages(chat_id, limit=limit, offset=offset)
-        return jsonify([serialize_waha_message(item) for item in items])
+        return jsonify([serialize_waha_message(item) for item in _sort_messages_oldest_first(items)])
     except Exception as exc:
         return jsonify({"error": "waha_messages_failed", "message": str(exc)}), 502
 
