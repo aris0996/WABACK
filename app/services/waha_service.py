@@ -1,3 +1,4 @@
+import os
 import time
 from urllib.parse import quote
 import requests
@@ -15,6 +16,15 @@ class WahaService:
 
     def _headers(self):
         return {"X-Api-Key": self._config()["api_key"], "Content-Type": "application/json"}
+
+    def _base_urls(self):
+        cfg = self._config()
+        urls = [cfg["base_url"]]
+        extra = os.getenv("WAHA_FALLBACK_BASE_URLS", "http://127.0.0.1:3000,http://host.docker.internal:3000")
+        for url in [item.strip().rstrip("/") for item in extra.split(",") if item.strip()]:
+            if url not in urls:
+                urls.append(url)
+        return urls
 
     def _get_json(self, url, *, params=None, timeout=12):
         try:
@@ -45,36 +55,48 @@ class WahaService:
 
     def get_status(self):
         cfg = self._config()
-        url = f"{cfg['base_url']}/api/sessions/{cfg['session']}"
-        return self._get_json(url, timeout=12)
+        errors = []
+        for base_url in self._base_urls():
+            try:
+                return self._get_json(f"{base_url}/api/sessions/{cfg['session']}", timeout=8)
+            except RuntimeError as exc:
+                errors.append(str(exc))
+        raise RuntimeError("Tidak bisa mengambil status WAHA. " + " | ".join(errors))
 
     def get_chats(self, limit=100, offset=0):
         cfg = self._config()
         params = {"limit": limit, "offset": offset}
         errors = []
-        candidates = [
-            (f"{cfg['base_url']}/api/{cfg['session']}/chats", params),
-            (f"{cfg['base_url']}/api/chats", {**params, "session": cfg["session"]}),
-        ]
-        for url, request_params in candidates:
-            try:
-                return self._list_from_response(self._get_json(url, params=request_params, timeout=12))
-            except RuntimeError as exc:
-                errors.append(str(exc))
-                if "HTTP 404" not in str(exc):
-                    break
+        for base_url in self._base_urls():
+            candidates = [
+                (f"{base_url}/api/{cfg['session']}/chats", params),
+                (f"{base_url}/api/chats", {**params, "session": cfg["session"]}),
+            ]
+            for url, request_params in candidates:
+                try:
+                    return self._list_from_response(self._get_json(url, params=request_params, timeout=8))
+                except RuntimeError as exc:
+                    errors.append(str(exc))
+                    if "HTTP 404" not in str(exc):
+                        break
         raise RuntimeError("Tidak bisa mengambil daftar chat WAHA. " + " | ".join(errors))
 
     def get_chat_messages(self, chat_id, limit=50, offset=0):
         cfg = self._config()
         safe_chat_id = quote(chat_id, safe="")
-        url = f"{cfg['base_url']}/api/{cfg['session']}/chats/{safe_chat_id}/messages"
-        data = self._get_json(
-            url,
-            params={"limit": limit, "offset": offset, "downloadMedia": "false"},
-            timeout=12,
-        )
-        return self._list_from_response(data)
+        errors = []
+        for base_url in self._base_urls():
+            url = f"{base_url}/api/{cfg['session']}/chats/{safe_chat_id}/messages"
+            try:
+                data = self._get_json(
+                    url,
+                    params={"limit": limit, "offset": offset, "downloadMedia": "false"},
+                    timeout=8,
+                )
+                return self._list_from_response(data)
+            except RuntimeError as exc:
+                errors.append(str(exc))
+        raise RuntimeError("Tidak bisa mengambil pesan chat WAHA. " + " | ".join(errors))
 
     def send_text(self, chat_id, text):
         cfg = self._config()
