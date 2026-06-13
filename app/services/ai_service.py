@@ -40,6 +40,19 @@ def get_contact_for_message(message):
     return contact
 
 
+def _log_skip(message, reason):
+    db.session.add(
+        MessageLog(
+            direction="in",
+            chat_id=message.chat_id,
+            message=message.body or "",
+            status="skip",
+            error=reason,
+        )
+    )
+    db.session.commit()
+
+
 def build_prompt(message, contact=None):
     settings = get_settings()
     history = (
@@ -132,17 +145,22 @@ def is_active_now(contact):
 
 def handle_auto_reply(message):
     if message.from_me or not message.body:
+        _log_skip(message, "skip: from_me_or_empty")
         return
     contact = get_contact_for_message(message)
     if contact.permission == "blocked" or contact.reply_mode == "disabled":
+        _log_skip(message, f"skip: contact_permission={contact.permission}, reply_mode={contact.reply_mode}")
         return
     if not is_active_now(contact):
+        _log_skip(message, "skip: outside_active_hours")
         return
     if message.is_group:
         keyword = (contact.trigger_keyword or "").lower().strip()
         if not keyword or keyword not in (message.body or "").lower():
+            _log_skip(message, f"skip: group_without_keyword keyword={keyword or '-'}")
             return
     if contact.reply_mode == "manual_only":
+        _log_skip(message, "skip: manual_only")
         return
     if contact.reply_mode == "ai_draft":
         generate_ai_draft(message, contact)
