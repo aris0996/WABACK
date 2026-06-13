@@ -18,10 +18,42 @@ def _get(payload, *keys):
     return current
 
 
+def _pick_chat_id(data, message):
+    candidates = [
+        data.get("chatId"),
+        message.get("chatId"),
+        _get(message, "id", "_serialized"),
+        _get(message, "id", "remote"),
+        _get(message, "from", "_serialized"),
+        _get(data, "from", "_serialized"),
+        data.get("from"),
+        data.get("to"),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return None
+
+
+def _pick_sender_id(data, message, chat_id):
+    candidates = [
+        data.get("sender"),
+        data.get("senderId"),
+        data.get("from"),
+        _get(message, "from", "_serialized"),
+        _get(message, "id", "remote"),
+        chat_id,
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return chat_id
+
+
 def parse_waha(payload):
     data = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
     message = data.get("message") if isinstance(data.get("message"), dict) else data
-    chat_id = data.get("chatId") or message.get("chatId") or _get(data, "from")
+    chat_id = _pick_chat_id(data, message)
     body = (
         message.get("body")
         or message.get("text")
@@ -39,7 +71,7 @@ def parse_waha(payload):
     return {
         "session": data.get("session") or payload.get("session"),
         "chat_id": chat_id,
-        "sender_id": data.get("sender") or message.get("from") or chat_id,
+        "sender_id": _pick_sender_id(data, message, chat_id),
         "sender_name": data.get("pushName") or message.get("pushName") or data.get("senderName"),
         "body": body,
         "waha_message_id": data.get("id") or message.get("id") or _get(message, "_data", "id", "id"),
@@ -58,6 +90,7 @@ def waha_webhook():
     message = Message(**parsed, status="new")
     db.session.add(message)
     db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="received"))
+    db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="webhook_parsed", error=f"from_me={message.from_me}, is_group={message.is_group}, sender={message.sender_id}"))
     db.session.commit()
 
     relay_client.send_event(get_settings()["relay_flutter_target_device_id"], "inbox_new_message", serialize_message(message))
@@ -66,5 +99,10 @@ def waha_webhook():
         try:
             handle_auto_reply(message)
         except Exception as exc:
+            db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="auto_reply_error", error=str(exc)))
+            db.session.commit()
             return jsonify({"ok": True, "message": serialize_message(message), "auto_reply_error": str(exc)}), 202
+    else:
+        db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="auto_reply_skip", error="from_me_or_empty"))
+        db.session.commit()
     return jsonify({"ok": True, "message": serialize_message(message)})
