@@ -1,6 +1,8 @@
 from datetime import datetime
 import logging
+import time
 from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import OperationalError
 from ..extensions import db
 from ..models import Message, MessageLog
 from ..services.ai_service import handle_auto_reply, serialize_message
@@ -75,6 +77,7 @@ def parse_waha(payload):
         except Exception:
             parsed_ts = None
     return {
+        "event": payload.get("event"),
         "session": data.get("session") or payload.get("session"),
         "chat_id": chat_id,
         "sender_id": _pick_sender_id(data, message, chat_id),
@@ -87,14 +90,32 @@ def parse_waha(payload):
     }
 
 
+def _commit_with_retry(max_attempts=5, delay=0.25):
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            db.session.commit()
+            return
+        except OperationalError as exc:
+            db.session.rollback()
+            last_error = exc
+            if "database is locked" not in str(exc).lower() or attempt == max_attempts:
+                raise
+            sleep_for = delay * attempt
+            logger.warning("SQLite busy/locked during commit, retrying attempt=%s sleep=%.2fs", attempt, sleep_for)
+            time.sleep(sleep_for)
+    if last_error:
+        raise last_error
+
+
 @webhook_bp.post("/waha")
 def waha_webhook():
     payload = request.get_json(silent=True) or {}
     logger.info("WAHA webhook received: top_keys=%s", list(payload.keys())[:10] if isinstance(payload, dict) else type(payload).__name__)
     parsed = parse_waha(payload)
     if not parsed["chat_id"]:
-        logger.warning("WAHA webhook invalid payload: chatId not found")
-        return jsonify({"error": "invalid_payload", "message": "chatId tidak ditemukan"}), 400
+        logger.info("WAHA webhook ignored: event=%s chatId not found", parsed.get("event"))
+        return jsonify({"ok": True, "ignored": True, "reason": "chatId tidak ditemukan"}), 200
     logger.info(
         "WAHA parsed message: session=%s chat_id=%s sender_id=%s from_me=%s is_group=%s body_len=%s",
         parsed.get("session"),
@@ -104,6 +125,7 @@ def waha_webhook():
         parsed.get("is_group"),
         len(parsed.get("body") or ""),
     )
+    parsed.pop("event", None)
     message = Message(**parsed, status="new")
     db.session.add(message)
     db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="received"))
@@ -119,7 +141,7 @@ def waha_webhook():
             ),
         )
     )
-    db.session.commit()
+    _commit_with_retry()
 
     relay_client.send_event(get_settings()["relay_flutter_target_device_id"], "inbox_new_message", serialize_message(message))
 
@@ -131,10 +153,10 @@ def waha_webhook():
         except Exception as exc:
             logger.exception("Auto-reply pipeline failed for chat_id=%s message_id=%s", message.chat_id, message.id)
             db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="auto_reply_error", error=str(exc)))
-            db.session.commit()
+            _commit_with_retry()
             return jsonify({"ok": True, "message": serialize_message(message), "auto_reply_error": str(exc)}), 202
     else:
         logger.info("Auto-reply skipped before pipeline for chat_id=%s reason=from_me_or_empty", message.chat_id)
         db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="auto_reply_skip", error="from_me_or_empty"))
-        db.session.commit()
+        _commit_with_retry()
     return jsonify({"ok": True, "message": serialize_message(message)})

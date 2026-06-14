@@ -1,5 +1,6 @@
 import logging
 from flask import Flask, jsonify
+from sqlalchemy import event
 from .config import Config
 from .extensions import cors, db, jwt
 from .seed import ensure_schema_updates, seed_defaults
@@ -52,6 +53,15 @@ def create_app():
         return jsonify({"error": "server_error", "message": str(error)}), 500
 
     with app.app_context():
+        if str(app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite"):
+            @event.listens_for(db.engine, "connect")
+            def _set_sqlite_pragma(dbapi_connection, _connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.close()
+
         db.create_all()
         ensure_schema_updates()
         seed_defaults()
