@@ -198,10 +198,23 @@ def cooldown_active(contact):
 
 
 def handle_auto_reply(message):
+    _log_event(
+        message,
+        "auto_reply_check",
+        f"from_me={message.from_me}, is_group={message.is_group}, body_len={len(message.body or '')}",
+    )
     if message.from_me or not message.body:
         _log_skip(message, "auto_reply_skip", "from_me_or_empty")
         return
     contact = get_contact_for_message(message)
+    _log_event(
+        message,
+        "contact_resolved",
+        (
+            f"contact_id={contact.id}, permission={contact.permission}, reply_mode={contact.reply_mode}, "
+            f"type={contact.type}, priority={contact.priority_level}, chat_id={contact.chat_id}"
+        ),
+    )
     if contact.permission == "blocked":
         _log_skip(message, "blocked", "contact permission blocked")
         return
@@ -237,6 +250,11 @@ def handle_auto_reply(message):
                 return
             raise
         text = draft.edited_response or draft.response or ""
+        if not text.strip():
+            message.status = "draft_ready"
+            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message="", status="empty_ai_response", error="AI draft kosong"))
+            db.session.commit()
+            return
         try:
             _log_event(message, "auto_reply_start", f"preset=auto priority={contact.priority_level}", direction="out", text=text)
             waha_service.send_typing(message.chat_id)
@@ -248,6 +266,7 @@ def handle_auto_reply(message):
             db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_sent", error=f"cooldown={contact.cooldown_seconds}, limit={contact.daily_auto_reply_limit or 0}"))
             db.session.commit()
             relay_client.send_event(get_settings()["relay_flutter_target_device_id"], "message_replied", {"message_id": message.id, "chat_id": message.chat_id})
+            return
         except Exception as exc:
             if contact.fallback_to_draft_on_error:
                 message.status = "draft_ready"
@@ -258,3 +277,4 @@ def handle_auto_reply(message):
             db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_failed", error=str(exc)))
             db.session.commit()
             raise
+    _log_skip(message, "auto_reply_not_executed", f"permission={contact.permission}, reply_mode={contact.reply_mode}")

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..middleware.auth_required import auth_required
@@ -10,11 +10,14 @@ scheduled_bp = Blueprint("scheduled", __name__)
 def parse_dt(value):
     if isinstance(value, str) and value.endswith("Z"):
         value = value[:-1] + "+00:00"
-    return datetime.fromisoformat(value)
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def serialize(item):
-    now = datetime.now()
+    now = datetime.utcnow()
     remaining_seconds = None
     if item.schedule_time:
         remaining_seconds = int((item.schedule_time - now).total_seconds())
@@ -29,15 +32,15 @@ def serialize(item):
         "id": item.id,
         "target_chat_id": item.target_chat_id,
         "message": item.message,
-        "schedule_time": item.schedule_time.isoformat() if item.schedule_time else None,
+        "schedule_time": f"{item.schedule_time.isoformat()}Z" if item.schedule_time else None,
         "repeat": item.repeat,
         "enabled": item.enabled,
-        "last_sent_at": item.last_sent_at.isoformat() if item.last_sent_at else None,
+        "last_sent_at": f"{item.last_sent_at.isoformat()}Z" if item.last_sent_at else None,
         "last_status": status,
         "last_error": item.last_error,
         "countdown_seconds": remaining_seconds,
-        "created_at": item.created_at.isoformat() if item.created_at else None,
-        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+        "created_at": f"{item.created_at.isoformat()}Z" if item.created_at else None,
+        "updated_at": f"{item.updated_at.isoformat()}Z" if item.updated_at else None,
     }
 
 

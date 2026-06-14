@@ -23,7 +23,7 @@ class SchedulerService:
 
     def tick(self):
         with self.app.app_context():
-            now = datetime.now()
+            now = datetime.utcnow()
             due = ScheduledMessage.query.filter(
                 ScheduledMessage.enabled.is_(True),
                 ScheduledMessage.schedule_time <= now,
