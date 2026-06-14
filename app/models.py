@@ -87,6 +87,8 @@ class ScheduledMessage(db.Model):
     repeat = db.Column(db.String(20), default="none", nullable=False)
     enabled = db.Column(db.Boolean, default=True, nullable=False)
     last_sent_at = db.Column(db.DateTime, nullable=True)
+    last_status = db.Column(db.String(30), default="pending", nullable=False)
+    last_error = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

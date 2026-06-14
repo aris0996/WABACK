@@ -14,6 +14,17 @@ def parse_dt(value):
 
 
 def serialize(item):
+    now = datetime.now()
+    remaining_seconds = None
+    if item.schedule_time:
+        remaining_seconds = int((item.schedule_time - now).total_seconds())
+    status = item.last_status or "pending"
+    if not item.enabled and item.last_sent_at and item.repeat == "none":
+        status = "sent"
+    elif item.enabled and remaining_seconds is not None and remaining_seconds > 0:
+        status = "pending"
+    elif item.enabled and remaining_seconds is not None and remaining_seconds <= 0 and status not in ("sent", "scheduled_sent"):
+        status = "due"
     return {
         "id": item.id,
         "target_chat_id": item.target_chat_id,
@@ -22,6 +33,9 @@ def serialize(item):
         "repeat": item.repeat,
         "enabled": item.enabled,
         "last_sent_at": item.last_sent_at.isoformat() if item.last_sent_at else None,
+        "last_status": status,
+        "last_error": item.last_error,
+        "countdown_seconds": remaining_seconds,
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
     }
@@ -33,6 +47,8 @@ def apply(item, payload):
             setattr(item, key, payload[key])
     if "schedule_time" in payload:
         item.schedule_time = parse_dt(payload["schedule_time"]).replace(tzinfo=None)
+        item.last_status = "pending"
+        item.last_error = None
 
 
 @scheduled_bp.get("")
@@ -51,6 +67,7 @@ def create_scheduled():
             return jsonify({"error": "validation_error", "message": f"{field} wajib diisi"}), 400
     item = ScheduledMessage(target_chat_id=payload["target_chat_id"], message=payload["message"], schedule_time=parse_dt(payload["schedule_time"]).replace(tzinfo=None))
     apply(item, payload)
+    item.last_status = "pending"
     db.session.add(item)
     db.session.commit()
     return jsonify(serialize(item)), 201

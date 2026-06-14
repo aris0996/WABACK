@@ -42,6 +42,16 @@ def ensure_schema_updates():
     for name, sql in additions.items():
         if name not in columns:
             db.session.execute(db.text(sql))
+
+    if "scheduled_messages" in inspector.get_table_names():
+        scheduled_columns = {column["name"] for column in inspector.get_columns("scheduled_messages")}
+        scheduled_additions = {
+            "last_status": "ALTER TABLE scheduled_messages ADD COLUMN last_status VARCHAR(30) NOT NULL DEFAULT 'pending'",
+            "last_error": "ALTER TABLE scheduled_messages ADD COLUMN last_error TEXT",
+        }
+        for name, sql in scheduled_additions.items():
+            if name not in scheduled_columns:
+                db.session.execute(db.text(sql))
     db.session.commit()
 
 
