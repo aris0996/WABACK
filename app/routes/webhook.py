@@ -3,6 +3,7 @@ from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..models import Message, MessageLog
 from ..services.ai_service import handle_auto_reply, serialize_message
+from ..services.chat_identity import serialize_chat_id
 from ..services.relay_client import relay_client
 from ..services.settings_service import get_settings
 
@@ -31,7 +32,7 @@ def _pick_chat_id(data, message):
     ]
     for candidate in candidates:
         if candidate:
-            return candidate
+            return serialize_chat_id(candidate)
     return None
 
 
@@ -46,7 +47,7 @@ def _pick_sender_id(data, message, chat_id):
     ]
     for candidate in candidates:
         if candidate:
-            return candidate
+            return serialize_chat_id(candidate)
     return chat_id
 
 

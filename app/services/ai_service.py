@@ -5,6 +5,7 @@ from .settings_service import get_settings, setting_bool
 from .ollama_service import ollama_service
 from .relay_client import relay_client
 from .waha_service import waha_service
+from .chat_identity import chat_id_candidates
 
 
 def serialize_message(message):
@@ -25,8 +26,17 @@ def serialize_message(message):
 
 
 def get_contact_for_message(message):
-    contact = Contact.query.filter_by(chat_id=message.chat_id).first()
+    candidates = chat_id_candidates(message.chat_id, message.sender_id)
+    contact = None
+    for candidate in candidates:
+        contact = Contact.query.filter_by(chat_id=candidate).first()
+        if contact:
+            break
     if contact:
+        if contact.chat_id != message.chat_id and message.chat_id:
+            # Keep the latest concrete chat id so future matching becomes simpler.
+            contact.chat_id = message.chat_id
+            db.session.commit()
         return contact
     contact = Contact(
         chat_id=message.chat_id,
@@ -169,16 +179,18 @@ def handle_auto_reply(message):
         draft = generate_ai_draft(message, contact)
         text = draft.edited_response or draft.response or ""
         try:
+            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_start"))
+            db.session.commit()
             waha_service.send_typing(message.chat_id)
             waha_service.human_delay(text)
             waha_service.stop_typing(message.chat_id)
             waha_service.send_text(message.chat_id, text)
             message.status = "replied"
-            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="sent"))
+            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_sent"))
             db.session.commit()
             relay_client.send_event(get_settings()["relay_flutter_target_device_id"], "message_replied", {"message_id": message.id, "chat_id": message.chat_id})
         except Exception as exc:
             message.status = "send_error"
-            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="error", error=str(exc)))
+            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_failed", error=str(exc)))
             db.session.commit()
             raise

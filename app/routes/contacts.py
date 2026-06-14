@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..middleware.auth_required import auth_required
 from ..models import Contact, Message
+from ..services.chat_identity import serialize_chat_id, user_part
 from ..services.waha_service import waha_service
 
 contacts_bp = Blueprint("contacts", __name__)
@@ -38,9 +39,7 @@ def _chat_id_from_waha(chat):
     if not isinstance(chat, dict):
         return None
     raw_id = chat.get("id") or chat.get("chatId")
-    if isinstance(raw_id, dict):
-        return raw_id.get("_serialized") or raw_id.get("user")
-    return raw_id
+    return serialize_chat_id(raw_id)
 
 
 def _name_from_waha(chat, chat_id):
@@ -106,6 +105,10 @@ def _sync_chat_rows(chats):
         if not chat_id:
             continue
         contact = Contact.query.filter_by(chat_id=chat_id).first()
+        if not contact:
+            short_id = user_part(chat_id)
+            if short_id:
+                contact = Contact.query.filter_by(chat_id=short_id).first()
         is_group = bool(chat.get("isGroup") or chat.get("type") == "group" or str(chat_id).endswith("@g.us"))
         if not contact:
             contact = Contact(

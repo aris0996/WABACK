@@ -3,6 +3,7 @@ from ..extensions import db
 from ..middleware.auth_required import auth_required
 from ..models import AiDraft, Contact, Message, MessageLog
 from ..services.ai_service import generate_ai_draft, serialize_message
+from ..services.chat_identity import chat_id_candidates
 from ..services.relay_client import relay_client
 from ..services.settings_service import get_settings
 from ..services.waha_service import waha_service
@@ -162,7 +163,12 @@ def ignore(message_id):
 @auth_required
 def block_contact(message_id):
     message = Message.query.get_or_404(message_id)
-    contact = Contact.query.filter_by(chat_id=message.chat_id).first() or Contact(chat_id=message.chat_id, name=message.sender_name)
+    contact = None
+    for candidate in chat_id_candidates(message.chat_id, message.sender_id):
+        contact = Contact.query.filter_by(chat_id=candidate).first()
+        if contact:
+            break
+    contact = contact or Contact(chat_id=message.chat_id, name=message.sender_name)
     contact.permission = "blocked"
     contact.reply_mode = "disabled"
     db.session.add(contact)
