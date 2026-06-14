@@ -5,12 +5,18 @@ from .extensions import cors, db, jwt
 from .seed import ensure_schema_updates, seed_defaults
 from .services.relay_client import relay_client
 from .services.scheduler_service import scheduler_service
+from .services.server_log_bridge import ServerLogBridge
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    bridge = ServerLogBridge(app)
+    bridge.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root_logger = logging.getLogger()
+    if not any(isinstance(handler, ServerLogBridge) for handler in root_logger.handlers):
+        root_logger.addHandler(bridge)
 
     db.init_app(app)
     jwt.init_app(app)
