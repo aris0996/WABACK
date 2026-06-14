@@ -23,12 +23,14 @@ def _pick_chat_id(data, message):
     candidates = [
         data.get("chatId"),
         message.get("chatId"),
-        _get(message, "id", "_serialized"),
         _get(message, "id", "remote"),
         _get(message, "from", "_serialized"),
         _get(data, "from", "_serialized"),
+        _get(message, "to", "_serialized"),
         data.get("from"),
         data.get("to"),
+        _get(message, "id", "_serialized"),
+        _get(message, "from", "_serialized"),
     ]
     for candidate in candidates:
         if candidate:
@@ -43,6 +45,7 @@ def _pick_sender_id(data, message, chat_id):
         data.get("from"),
         _get(message, "from", "_serialized"),
         _get(message, "id", "remote"),
+        _get(message, "id", "_serialized"),
         chat_id,
     ]
     for candidate in candidates:
@@ -91,7 +94,18 @@ def waha_webhook():
     message = Message(**parsed, status="new")
     db.session.add(message)
     db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="received"))
-    db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="webhook_parsed", error=f"from_me={message.from_me}, is_group={message.is_group}, sender={message.sender_id}"))
+    db.session.add(
+        MessageLog(
+            direction="in",
+            chat_id=message.chat_id,
+            message=message.body,
+            status="webhook_parsed",
+            error=(
+                f"from_me={message.from_me}, is_group={message.is_group}, "
+                f"sender={message.sender_id}, session={message.session}, parsed_chat_id={message.chat_id}"
+            ),
+        )
+    )
     db.session.commit()
 
     relay_client.send_event(get_settings()["relay_flutter_target_device_id"], "inbox_new_message", serialize_message(message))
