@@ -98,6 +98,40 @@ class WahaService:
                 errors.append(str(exc))
         raise RuntimeError("Tidak bisa mengambil pesan chat WAHA. " + " | ".join(errors))
 
+    def get_chat_picture(self, chat_id):
+        cfg = self._config()
+        safe_chat_id = quote(chat_id, safe="")
+        errors = []
+        for base_url in self._base_urls():
+            candidates = [
+                f"{base_url}/api/{cfg['session']}/chats/{safe_chat_id}/picture",
+                f"{base_url}/api/contacts/profile-picture?session={cfg['session']}&id={safe_chat_id}",
+            ]
+            for url in candidates:
+                try:
+                    response = requests.get(url, headers=self._headers(), timeout=10, allow_redirects=True)
+                    if response.status_code == 404:
+                        continue
+                    if response.status_code >= 400:
+                        errors.append(f"{url} HTTP {response.status_code}")
+                        continue
+                    content_type = response.headers.get("Content-Type", "")
+                    if content_type.startswith("image/"):
+                        return response.content, content_type
+                    try:
+                        data = response.json()
+                        if isinstance(data, dict):
+                            avatar_url = data.get("url") or data.get("profilePicture") or data.get("picture")
+                            if avatar_url:
+                                image_response = requests.get(avatar_url, timeout=10)
+                                image_response.raise_for_status()
+                                return image_response.content, image_response.headers.get("Content-Type", "image/jpeg")
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    errors.append(str(exc))
+        raise RuntimeError("Tidak bisa mengambil avatar WAHA. " + " | ".join(errors[:4]))
+
     def send_text(self, chat_id, text):
         cfg = self._config()
         # WAHA installations may expose either /api/sendText or /api/{session}/sendText.

@@ -3,7 +3,10 @@ import json
 import logging
 import threading
 import time
+from uuid import uuid4
 import websockets
+from ..extensions import db
+from ..models import MessageLog
 from .settings_service import get_settings
 
 logger = logging.getLogger(__name__)
@@ -17,6 +20,9 @@ class RelayClient:
         self.thread = None
         self.running = False
         self.queue = None
+        self.connected = False
+        self.last_error = None
+        self.last_seen_at = None
 
     def configure_from_db(self, app):
         self.app = app
@@ -41,6 +47,8 @@ class RelayClient:
                     settings = get_settings()
                 await self._connect(settings)
             except Exception as exc:
+                self.connected = False
+                self.last_error = str(exc)
                 logger.warning("Relay offline/reconnect later: %s", exc)
                 await asyncio.sleep(5)
 
@@ -51,6 +59,9 @@ class RelayClient:
             return
         async with websockets.connect(server_url, ping_interval=20, ping_timeout=20) as ws:
             self.ws = ws
+            self.connected = True
+            self.last_error = None
+            self.last_seen_at = time.time()
             register = {
                 "type": "register",
                 "role": settings.get("relay_backend_role", "pc"),
@@ -69,6 +80,16 @@ class RelayClient:
 
     async def _consume(self, ws):
         async for message in ws:
+            self.last_seen_at = time.time()
+            try:
+                payload = json.loads(message)
+                if payload.get("type") == "ping":
+                    await ws.send(json.dumps({"type": "pong", "device_id": payload.get("device_id")}))
+                    continue
+                if payload.get("type") == "ack":
+                    logger.info("Relay ack: %s", payload)
+            except Exception:
+                pass
             logger.info("Relay message: %s", message)
 
     async def _produce(self, ws):
@@ -78,6 +99,7 @@ class RelayClient:
 
     def send_event(self, target_device_id, event, data):
         if not self.running or not self.loop or not self.queue:
+            self._log_delivery(event, target_device_id, "relay_failed", "relay_not_running")
             return False
         with self.app.app_context():
             settings = get_settings()
@@ -86,14 +108,43 @@ class RelayClient:
             "target": target_device_id or settings.get("relay_flutter_target_device_id", "phone-aris"),
             "token": settings.get("relay_token", ""),
             "event": event,
+            "event_id": f"evt_{uuid4().hex}",
             "data": data,
         }
         try:
             asyncio.run_coroutine_threadsafe(self.queue.put(message), self.loop)
+            self._log_delivery(event, message["target"], "relay_sent", f"event_id={message['event_id']}")
             return True
         except Exception as exc:
+            self._log_delivery(event, message["target"], "relay_failed", str(exc))
             logger.warning("Failed queue relay event: %s", exc)
             return False
+
+    def _log_delivery(self, event, target, status, detail):
+        if not self.app:
+            return
+        try:
+            with self.app.app_context():
+                db.session.add(
+                    MessageLog(
+                        direction="out",
+                        chat_id=f"system:relay:{target or '-'}",
+                        message=f"{event}",
+                        status=status,
+                        error=detail,
+                    )
+                )
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    def health(self):
+        return {
+            "running": self.running,
+            "connected": self.connected,
+            "last_error": self.last_error,
+            "last_seen_at": self.last_seen_at,
+        }
 
 
 relay_client = RelayClient()

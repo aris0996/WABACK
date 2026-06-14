@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, request
+from io import BytesIO
+from flask import Blueprint, jsonify, request, send_file
 from ..extensions import db
 from ..middleware.auth_required import auth_required
 from ..models import Contact, ContactMemory, Message
@@ -137,6 +138,7 @@ def serialize_waha_chat(chat):
         "unread_count": chat.get("unreadCount") or chat.get("unread_count") or 0,
         "timestamp": chat.get("timestamp") or last_message.get("timestamp"),
         "last_message": last_message.get("body") or last_message.get("text") or chat.get("lastMessageText") or "",
+        "pinned": bool(chat.get("pinned")),
         "raw": chat,
     }
 
@@ -259,6 +261,17 @@ def sync_waha_chats():
             db.session.commit()
             return jsonify({"ok": True, "synced": synced, "source": "local_messages", "warning": str(exc)})
         return jsonify({"error": "waha_sync_failed", "message": str(exc)}), 502
+
+
+@contacts_bp.get("/avatar/<path:chat_id>")
+@auth_required
+def contact_avatar(chat_id):
+    normalized = serialize_chat_id(chat_id)
+    try:
+        content, content_type = waha_service.get_chat_picture(normalized)
+        return send_file(BytesIO(content), mimetype=content_type, max_age=300)
+    except Exception as exc:
+        return jsonify({"error": "avatar_fetch_failed", "message": str(exc)}), 404
 
 
 @contacts_bp.get("/rules-preview/<path:chat_id>")

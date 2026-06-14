@@ -7,6 +7,9 @@ from .seed import ensure_schema_updates, seed_defaults
 from .services.relay_client import relay_client
 from .services.scheduler_service import scheduler_service
 from .services.server_log_bridge import ServerLogBridge
+from .services.settings_service import get_settings
+from .services.waha_service import waha_service
+from .services.ollama_service import ollama_service
 
 
 def create_app():
@@ -42,6 +45,33 @@ def create_app():
     @app.get("/api/health")
     def health():
         return jsonify({"ok": True})
+
+    @app.get("/api/health/relay")
+    def health_relay():
+        return jsonify({"ok": True, "relay": relay_client.health()})
+
+    @app.get("/api/health/waha")
+    def health_waha():
+        try:
+            status = waha_service.get_status()
+            return jsonify({"ok": True, "status": status})
+        except Exception as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 502
+
+    @app.get("/api/health/ollama")
+    def health_ollama():
+        settings = get_settings()
+        try:
+            response = ollama_service.generate(
+                "Balas hanya dengan: OK",
+                settings["ollama_model"],
+                settings["ollama_temperature"],
+                False,
+                settings["ollama_base_url"],
+            )
+            return jsonify({"ok": True, "response": response})
+        except Exception as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 502
 
     @app.errorhandler(404)
     def not_found(_):
