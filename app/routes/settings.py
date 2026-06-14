@@ -43,7 +43,10 @@ def test_waha():
 def ollama_models():
     settings = get_settings()
     try:
-        return jsonify({"ok": True, "models": ollama_service.list_models(settings["ollama_base_url"])})
+        models = ollama_service.list_models(settings["ollama_base_url"])
+        db.session.add(MessageLog(direction="out", chat_id="system:ollama", message=f"List Ollama models via {settings['ollama_base_url']}", status="ok"))
+        db.session.commit()
+        return jsonify({"ok": True, "models": models})
     except Exception as exc:
         db.session.add(MessageLog(direction="out", chat_id="system:ollama", message="List Ollama models", status="error", error=str(exc)))
         db.session.commit()

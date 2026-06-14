@@ -8,7 +8,7 @@ DEFAULT_SETTINGS = {
     "waha_base_url": os.getenv("WAHA_BASE_URL", "http://127.0.0.1:3000"),
     "waha_api_key": os.getenv("WAHA_API_KEY", "arisdev09"),
     "waha_session": os.getenv("WAHA_SESSION", "default"),
-    "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434"),
     "ollama_model": os.getenv("OLLAMA_MODEL", "llama3.1"),
     "ollama_temperature": os.getenv("OLLAMA_TEMPERATURE", "0.7"),
     "ollama_max_chars": os.getenv("OLLAMA_MAX_CHARS", "800"),

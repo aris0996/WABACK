@@ -161,7 +161,8 @@ def generate_ai_draft(message, contact=None):
     except Exception as exc:
         logger.exception("AI draft generation failed for message_id=%s chat_id=%s", message.id, message.chat_id)
         draft.status = "error"
-        message.status = "ai_error"
+        if message.status == "drafting":
+            message.status = "ai_error"
         db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message="", status="ai_error", error=str(exc)))
         db.session.commit()
         raise
@@ -280,6 +281,8 @@ def handle_auto_reply(message):
         except Exception as exc:
             if contact.fallback_to_draft_on_error:
                 logger.warning("AI generation failed, fallback to draft for chat_id=%s error=%s", message.chat_id, exc)
+                message.status = "draft_ready"
+                db.session.commit()
                 _log_event(message, "fallback_to_draft", f"AI generate failed: {exc}")
                 return
             raise
