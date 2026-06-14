@@ -1,3 +1,4 @@
+import logging
 from flask import Flask, jsonify
 from .config import Config
 from .extensions import cors, db, jwt
@@ -9,6 +10,7 @@ from .services.scheduler_service import scheduler_service
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     db.init_app(app)
     jwt.init_app(app)

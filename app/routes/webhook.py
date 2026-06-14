@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..models import Message, MessageLog
@@ -8,6 +9,7 @@ from ..services.relay_client import relay_client
 from ..services.settings_service import get_settings
 
 webhook_bp = Blueprint("webhook", __name__)
+logger = logging.getLogger(__name__)
 
 
 def _get(payload, *keys):
@@ -88,9 +90,20 @@ def parse_waha(payload):
 @webhook_bp.post("/waha")
 def waha_webhook():
     payload = request.get_json(silent=True) or {}
+    logger.info("WAHA webhook received: top_keys=%s", list(payload.keys())[:10] if isinstance(payload, dict) else type(payload).__name__)
     parsed = parse_waha(payload)
     if not parsed["chat_id"]:
+        logger.warning("WAHA webhook invalid payload: chatId not found")
         return jsonify({"error": "invalid_payload", "message": "chatId tidak ditemukan"}), 400
+    logger.info(
+        "WAHA parsed message: session=%s chat_id=%s sender_id=%s from_me=%s is_group=%s body_len=%s",
+        parsed.get("session"),
+        parsed.get("chat_id"),
+        parsed.get("sender_id"),
+        parsed.get("from_me"),
+        parsed.get("is_group"),
+        len(parsed.get("body") or ""),
+    )
     message = Message(**parsed, status="new")
     db.session.add(message)
     db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="received"))
@@ -112,12 +125,16 @@ def waha_webhook():
 
     if not message.from_me and message.body:
         try:
+            logger.info("Auto-reply pipeline start for chat_id=%s message_id=%s", message.chat_id, message.id)
             handle_auto_reply(message)
+            logger.info("Auto-reply pipeline end for chat_id=%s message_id=%s status=%s", message.chat_id, message.id, message.status)
         except Exception as exc:
+            logger.exception("Auto-reply pipeline failed for chat_id=%s message_id=%s", message.chat_id, message.id)
             db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="auto_reply_error", error=str(exc)))
             db.session.commit()
             return jsonify({"ok": True, "message": serialize_message(message), "auto_reply_error": str(exc)}), 202
     else:
+        logger.info("Auto-reply skipped before pipeline for chat_id=%s reason=from_me_or_empty", message.chat_id)
         db.session.add(MessageLog(direction="in", chat_id=message.chat_id, message=message.body, status="auto_reply_skip", error="from_me_or_empty"))
         db.session.commit()
     return jsonify({"ok": True, "message": serialize_message(message)})
