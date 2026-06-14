@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..middleware.auth_required import auth_required
-from ..models import Contact, Message
+from ..models import Contact, ContactMemory, Message
+from ..services.memory_service import get_memories_for_contact, refresh_contact_memory, serialize_memory
 from ..services.chat_identity import serialize_chat_id, user_part
 from ..services.waha_service import waha_service
 
@@ -30,6 +31,8 @@ def serialize(contact):
         "last_inbound_at": contact.last_inbound_at.isoformat() if contact.last_inbound_at else None,
         "preset": detect_preset(contact),
         "notes": contact.notes,
+        "memory_summary": contact.memory_summary,
+        "memory_count": len(contact.memories or []),
         "created_at": contact.created_at.isoformat() if contact.created_at else None,
         "updated_at": contact.updated_at.isoformat() if contact.updated_at else None,
     }
@@ -90,6 +93,7 @@ def apply(contact, payload):
         "notes",
         "priority_level",
         "keyword_match_mode",
+        "memory_summary",
     ]:
         if key in payload:
             setattr(contact, key, payload[key])
@@ -312,6 +316,75 @@ def create_contact():
 @auth_required
 def get_contact(contact_id):
     return jsonify(serialize(Contact.query.get_or_404(contact_id)))
+
+
+@contacts_bp.get("/<int:contact_id>/memories")
+@auth_required
+def list_contact_memories(contact_id):
+    contact = Contact.query.get_or_404(contact_id)
+    return jsonify({
+        "contact": serialize(contact),
+        "summary": contact.memory_summary or "",
+        "items": [serialize_memory(item) for item in get_memories_for_contact(contact.id)],
+    })
+
+
+@contacts_bp.post("/<int:contact_id>/memories")
+@auth_required
+def create_contact_memory(contact_id):
+    contact = Contact.query.get_or_404(contact_id)
+    payload = request.get_json(silent=True) or {}
+    content = (payload.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "validation_error", "message": "content wajib diisi"}), 400
+    item = ContactMemory(
+        contact_id=contact.id,
+        category=(payload.get("category") or "profile").strip(),
+        content=content,
+        confidence=(payload.get("confidence") or "medium").strip(),
+        pinned=parse_bool(payload.get("pinned")),
+    )
+    db.session.add(item)
+    db.session.commit()
+    return jsonify(serialize_memory(item)), 201
+
+
+@contacts_bp.post("/<int:contact_id>/memories/extract")
+@auth_required
+def extract_contact_memories(contact_id):
+    contact = Contact.query.get_or_404(contact_id)
+    items = refresh_contact_memory(contact)
+    return jsonify({
+        "ok": True,
+        "summary": contact.memory_summary or "",
+        "items": [serialize_memory(item) for item in items],
+    })
+
+
+@contacts_bp.put("/memories/<int:memory_id>")
+@auth_required
+def update_contact_memory(memory_id):
+    item = ContactMemory.query.get_or_404(memory_id)
+    payload = request.get_json(silent=True) or {}
+    if "category" in payload:
+        item.category = (payload.get("category") or "profile").strip()
+    if "content" in payload:
+        item.content = (payload.get("content") or "").strip()
+    if "confidence" in payload:
+        item.confidence = (payload.get("confidence") or "medium").strip()
+    if "pinned" in payload:
+        item.pinned = parse_bool(payload.get("pinned"))
+    db.session.commit()
+    return jsonify(serialize_memory(item))
+
+
+@contacts_bp.delete("/memories/<int:memory_id>")
+@auth_required
+def delete_contact_memory(memory_id):
+    item = ContactMemory.query.get_or_404(memory_id)
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 @contacts_bp.post("/<int:contact_id>/preset")

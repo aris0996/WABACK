@@ -41,8 +41,11 @@ class Contact(db.Model):
     last_auto_replied_at = db.Column(db.DateTime, nullable=True)
     last_inbound_at = db.Column(db.DateTime, nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    memory_summary = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    memories = db.relationship("ContactMemory", backref="contact", lazy=True, cascade="all, delete-orphan")
 
 
 class Message(db.Model):
@@ -103,3 +106,17 @@ class MessageLog(db.Model):
     status = db.Column(db.String(30), nullable=False)
     error = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ContactMemory(db.Model):
+    __tablename__ = "contact_memories"
+
+    id = db.Column(db.Integer, primary_key=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey("contacts.id"), nullable=False, index=True)
+    category = db.Column(db.String(30), nullable=False, default="profile")
+    content = db.Column(db.Text, nullable=False)
+    confidence = db.Column(db.String(20), nullable=False, default="medium")
+    source_message_id = db.Column(db.Integer, db.ForeignKey("messages.id"), nullable=True)
+    pinned = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

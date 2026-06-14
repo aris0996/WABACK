@@ -38,6 +38,7 @@ def ensure_schema_updates():
         "keyword_match_mode": "ALTER TABLE contacts ADD COLUMN keyword_match_mode VARCHAR(20) NOT NULL DEFAULT 'contains'",
         "last_auto_replied_at": "ALTER TABLE contacts ADD COLUMN last_auto_replied_at DATETIME",
         "last_inbound_at": "ALTER TABLE contacts ADD COLUMN last_inbound_at DATETIME",
+        "memory_summary": "ALTER TABLE contacts ADD COLUMN memory_summary TEXT",
     }
     for name, sql in additions.items():
         if name not in columns:
@@ -52,6 +53,24 @@ def ensure_schema_updates():
         for name, sql in scheduled_additions.items():
             if name not in scheduled_columns:
                 db.session.execute(db.text(sql))
+
+    if "contact_memories" not in inspector.get_table_names():
+        db.session.execute(db.text("""
+            CREATE TABLE contact_memories (
+                id INTEGER NOT NULL PRIMARY KEY,
+                contact_id INTEGER NOT NULL,
+                category VARCHAR(30) NOT NULL DEFAULT 'profile',
+                content TEXT NOT NULL,
+                confidence VARCHAR(20) NOT NULL DEFAULT 'medium',
+                source_message_id INTEGER,
+                pinned BOOLEAN NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(contact_id) REFERENCES contacts (id),
+                FOREIGN KEY(source_message_id) REFERENCES messages (id)
+            )
+        """))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_contact_memories_contact_id ON contact_memories (contact_id)"))
     db.session.commit()
 
 

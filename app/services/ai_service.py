@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from ..extensions import db
 from ..models import AiDraft, Contact, Message, MessageLog
+from .memory_service import build_memory_block
 from .settings_service import get_settings, setting_bool
 from .ollama_service import ollama_service
 from .relay_client import relay_client
@@ -87,15 +88,26 @@ def build_prompt(message, contact=None):
     history = list(reversed(history))
     style = contact.ai_style_override if contact and contact.ai_style_override else settings["ai_style"]
     max_chars = contact.max_chars_override if contact and contact.max_chars_override else settings["ollama_max_chars"]
+    memory_block = build_memory_block(contact) if contact else ""
     transcript = "\n".join(
         f"{'Admin' if item.from_me else (item.sender_name or item.sender_id or 'User')}: {item.body}"
         for item in history
         if item.body
     )
+    partner_mode = "Kontak personal dekat" if contact and contact.priority_level == "vip" else "Kontak umum"
     return f"""{settings["system_prompt"]}
 
 Gaya bahasa: {style}
 Batas panjang jawaban: maksimal {max_chars} karakter.
+Mode persona kontak: {partner_mode}
+
+Identitas kontak:
+- Nama kontak: {(contact.name or message.sender_name or message.chat_id) if contact else (message.sender_name or message.chat_id)}
+- Tipe: {contact.type if contact else ('group' if message.is_group else 'private')}
+- Prioritas: {contact.priority_level if contact else 'normal'}
+
+Memory kontak:
+{memory_block or '- Belum ada memory khusus. Pakai konteks chat terbaru dan tetap hati-hati.'}
 
 Konteks 10 pesan terakhir:
 {transcript}
@@ -107,6 +119,11 @@ Instruksi:
 - Jangan mengarang data yang tidak diketahui.
 - Jika butuh data tambahan, minta klarifikasi singkat.
 - Jawab dalam bahasa Indonesia kecuali user memakai bahasa lain.
+- Sesuaikan nada dengan hubungan, gaya bicara, dan emosi lawan bicara.
+- Jika kontak personal/dekat, utamakan kehangatan dan natural, jangan terasa seperti customer service.
+- Jika konteks formal, tetap sopan dan rapi.
+- Jangan bertentangan dengan memory kontak dan catatan admin, kecuali chat terbaru jelas menunjukkan hal yang lebih baru.
+- Hindari jawaban generik, kaku, terlalu panjang, atau terasa seperti bot.
 - Berikan hanya isi balasan WhatsApp, tanpa markdown berlebihan."""
 
 
