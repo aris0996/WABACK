@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from ..extensions import db
 from ..middleware.auth_required import auth_required
-from ..models import ScheduledMessage
+from ..models import Contact, ScheduledMessage
 
 scheduled_bp = Blueprint("scheduled", __name__)
 
@@ -28,9 +28,11 @@ def serialize(item):
         status = "pending"
     elif item.enabled and remaining_seconds is not None and remaining_seconds <= 0 and status not in ("sent", "scheduled_sent"):
         status = "due"
+    contact = Contact.query.filter_by(chat_id=item.target_chat_id).first()
     return {
         "id": item.id,
         "target_chat_id": item.target_chat_id,
+        "target_name": (contact.name if contact and contact.name else None) or item.target_chat_id,
         "message": item.message,
         "schedule_time": f"{item.schedule_time.isoformat()}Z" if item.schedule_time else None,
         "repeat": item.repeat,

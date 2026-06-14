@@ -32,6 +32,7 @@ def ensure_schema_updates():
     columns = {column["name"] for column in inspector.get_columns("contacts")}
     additions = {
         "priority_level": "ALTER TABLE contacts ADD COLUMN priority_level VARCHAR(20) NOT NULL DEFAULT 'normal'",
+        "relationship_type": "ALTER TABLE contacts ADD COLUMN relationship_type VARCHAR(30) NOT NULL DEFAULT 'general'",
         "daily_auto_reply_limit": "ALTER TABLE contacts ADD COLUMN daily_auto_reply_limit INTEGER",
         "cooldown_seconds": "ALTER TABLE contacts ADD COLUMN cooldown_seconds INTEGER NOT NULL DEFAULT 0",
         "fallback_to_draft_on_error": "ALTER TABLE contacts ADD COLUMN fallback_to_draft_on_error BOOLEAN NOT NULL DEFAULT 1",
@@ -96,6 +97,9 @@ def seed_defaults():
     })
     Contact.query.filter((Contact.priority_level.is_(None)) | (Contact.priority_level == "")).update({
         "priority_level": "normal",
+    })
+    Contact.query.filter((Contact.relationship_type.is_(None)) | (Contact.relationship_type == "")).update({
+        "relationship_type": "general",
     })
     Contact.query.filter(Contact.keyword_match_mode.is_(None)).update({
         "keyword_match_mode": "contains",

@@ -45,6 +45,11 @@ def serialize_waha_message(item):
     }
 
 
+def _display_name(chat_id, sender_name=None):
+    contact = Contact.query.filter_by(chat_id=chat_id).first()
+    return (contact.name if contact and contact.name else None) or sender_name or chat_id
+
+
 def _sort_messages_oldest_first(items):
     def key(item):
         value = item.get("timestamp") or item.get("t") or item.get("_data", {}).get("t") or 0
@@ -64,7 +69,12 @@ def list_messages():
     if chat_id:
         query = query.filter_by(chat_id=chat_id)
     items = query.order_by(Message.created_at.desc()).limit(int(request.args.get("limit", 100))).all()
-    return jsonify([serialize_message(item) for item in items])
+    data = []
+    for item in items:
+        row = serialize_message(item)
+        row["display_name"] = _display_name(item.chat_id, item.sender_name)
+        data.append(row)
+    return jsonify(data)
 
 
 @messages_bp.get("/waha-chat/<path:chat_id>")
@@ -102,14 +112,22 @@ def send_to_chat():
 @messages_bp.get("/<int:message_id>")
 @auth_required
 def get_message(message_id):
-    return jsonify(with_drafts(Message.query.get_or_404(message_id)))
+    message = Message.query.get_or_404(message_id)
+    row = with_drafts(message)
+    row["display_name"] = _display_name(message.chat_id, message.sender_name)
+    return jsonify(row)
 
 
 @messages_bp.get("/chat/<path:chat_id>")
 @auth_required
 def chat_history(chat_id):
     items = Message.query.filter_by(chat_id=chat_id).order_by(Message.created_at.desc()).limit(50).all()
-    return jsonify([serialize_message(item) for item in reversed(items)])
+    data = []
+    for item in reversed(items):
+        row = serialize_message(item)
+        row["display_name"] = _display_name(item.chat_id, item.sender_name)
+        data.append(row)
+    return jsonify(data)
 
 
 @messages_bp.post("/<int:message_id>/generate-ai")

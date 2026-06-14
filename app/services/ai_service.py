@@ -11,6 +11,7 @@ from .waha_service import waha_service
 from .chat_identity import chat_id_candidates
 
 logger = logging.getLogger(__name__)
+MEMORY_REFRESH_EVERY = 12
 
 
 def serialize_message(message):
@@ -60,6 +61,24 @@ def get_contact_for_message(message):
     return contact
 
 
+def maybe_refresh_contact_memory(contact, message):
+    if not contact or message.from_me:
+        return
+    try:
+        inbound_count = Message.query.filter_by(chat_id=message.chat_id, from_me=False).count()
+        needs_refresh = not (contact.memory_summary or "").strip() or inbound_count % MEMORY_REFRESH_EVERY == 0
+        if needs_refresh:
+            from .memory_service import refresh_contact_memory
+            refresh_contact_memory(contact)
+            _log_event(
+                message,
+                "memory_refreshed",
+                f"inbound_count={inbound_count}, relationship={contact.relationship_type}",
+            )
+    except Exception as exc:
+        logger.warning("Memory auto refresh skipped for contact_id=%s error=%s", contact.id if contact else None, exc)
+
+
 def _log_event(message, status, reason=None, *, direction="in", text=None):
     db.session.add(
         MessageLog(
@@ -95,11 +114,13 @@ def build_prompt(message, contact=None):
         if item.body
     )
     partner_mode = "Kontak personal dekat" if contact and contact.priority_level == "vip" else "Kontak umum"
+    relationship_mode = contact.relationship_type if contact else "general"
     return f"""{settings["system_prompt"]}
 
 Gaya bahasa: {style}
 Batas panjang jawaban: maksimal {max_chars} karakter.
 Mode persona kontak: {partner_mode}
+Relationship mode: {relationship_mode}
 
 Identitas kontak:
 - Nama kontak: {(contact.name or message.sender_name or message.chat_id) if contact else (message.sender_name or message.chat_id)}
@@ -120,9 +141,13 @@ Instruksi:
 - Jika butuh data tambahan, minta klarifikasi singkat.
 - Jawab dalam bahasa Indonesia kecuali user memakai bahasa lain.
 - Sesuaikan nada dengan hubungan, gaya bicara, dan emosi lawan bicara.
+- Utamakan relationship mode berikut saat memilih nada: general/customer/partner/friend/family/lead.
 - Jika kontak personal/dekat, utamakan kehangatan dan natural, jangan terasa seperti customer service.
 - Jika konteks formal, tetap sopan dan rapi.
 - Jangan bertentangan dengan memory kontak dan catatan admin, kecuali chat terbaru jelas menunjukkan hal yang lebih baru.
+- Prioritaskan chat terbaru dibanding memory lama jika ada konflik.
+- Prioritaskan pinned memory dan catatan admin di atas inferensi.
+- Jika tidak yakin, jangan nebak. Pilih klarifikasi singkat yang natural.
 - Hindari jawaban generik, kaku, terlalu panjang, atau terasa seperti bot.
 - Berikan hanya isi balasan WhatsApp, tanpa markdown berlebihan."""
 
@@ -241,21 +266,23 @@ def handle_auto_reply(message):
         _log_skip(message, "auto_reply_skip", "from_me_or_empty")
         return
     contact = get_contact_for_message(message)
+    maybe_refresh_contact_memory(contact, message)
     logger.info(
-        "Auto-reply contact resolved: message_id=%s contact_id=%s permission=%s reply_mode=%s type=%s priority=%s",
+        "Auto-reply contact resolved: message_id=%s contact_id=%s permission=%s reply_mode=%s type=%s priority=%s relationship=%s",
         message.id,
         contact.id,
         contact.permission,
         contact.reply_mode,
         contact.type,
         contact.priority_level,
+        contact.relationship_type,
     )
     _log_event(
         message,
         "contact_resolved",
         (
             f"contact_id={contact.id}, permission={contact.permission}, reply_mode={contact.reply_mode}, "
-            f"type={contact.type}, priority={contact.priority_level}, chat_id={contact.chat_id}"
+            f"type={contact.type}, priority={contact.priority_level}, relationship={contact.relationship_type}, chat_id={contact.chat_id}"
         ),
     )
     if contact.permission == "blocked":

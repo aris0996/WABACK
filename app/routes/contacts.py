@@ -23,6 +23,7 @@ def serialize(contact):
         "ai_style_override": contact.ai_style_override,
         "max_chars_override": contact.max_chars_override,
         "priority_level": contact.priority_level,
+        "relationship_type": contact.relationship_type,
         "daily_auto_reply_limit": contact.daily_auto_reply_limit,
         "cooldown_seconds": contact.cooldown_seconds,
         "fallback_to_draft_on_error": contact.fallback_to_draft_on_error,
@@ -92,6 +93,7 @@ def apply(contact, payload):
         "ai_style_override",
         "notes",
         "priority_level",
+        "relationship_type",
         "keyword_match_mode",
         "memory_summary",
     ]:

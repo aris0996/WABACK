@@ -34,6 +34,7 @@ class Contact(db.Model):
     ai_style_override = db.Column(db.Text, nullable=True)
     max_chars_override = db.Column(db.Integer, nullable=True)
     priority_level = db.Column(db.String(20), default="normal", nullable=False)
+    relationship_type = db.Column(db.String(30), default="general", nullable=False)
     daily_auto_reply_limit = db.Column(db.Integer, nullable=True)
     cooldown_seconds = db.Column(db.Integer, default=0, nullable=False)
     fallback_to_draft_on_error = db.Column(db.Boolean, default=True, nullable=False)
