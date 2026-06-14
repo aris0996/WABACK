@@ -31,6 +31,16 @@ def with_drafts(message):
 
 
 def serialize_waha_message(item):
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else item
+    message_type = item.get("type") or raw.get("type") or raw.get("_data", {}).get("type")
+    media_url = (
+        raw.get("mediaUrl")
+        or raw.get("url")
+        or raw.get("downloadUrl")
+        or raw.get("_data", {}).get("deprecatedMms3Url")
+        or raw.get("_data", {}).get("clientUrl")
+    )
+    thumbnail_url = raw.get("thumbnail") or raw.get("_data", {}).get("thumbnail")
     return {
         "id": item.get("id") or item.get("_data", {}).get("id", {}).get("id"),
         "chat_id": item.get("chatId") or item.get("to") or item.get("from"),
@@ -41,6 +51,10 @@ def serialize_waha_message(item):
         "ack": item.get("ack"),
         "ack_name": item.get("ackName"),
         "has_media": bool(item.get("hasMedia")),
+        "message_type": message_type,
+        "mime_type": raw.get("mimetype") or raw.get("mimeType") or raw.get("_data", {}).get("mimetype"),
+        "media_url": media_url,
+        "thumbnail_url": thumbnail_url,
         "raw": item,
     }
 

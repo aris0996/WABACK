@@ -151,7 +151,13 @@ def _sort_chats_newest_first(chats):
         except Exception:
             return 0
 
-    return sorted(chats, key=key, reverse=True)
+    return sorted(
+        chats,
+        key=lambda chat: (
+            0 if chat.get("pinned") else 1,
+            -key(chat),
+        ),
+    )
 
 
 def _local_chats_from_messages(limit=300):
