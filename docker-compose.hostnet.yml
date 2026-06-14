@@ -23,4 +23,4 @@ services:
       SYNC_ENV_SETTINGS_ON_BOOT: ${SYNC_ENV_SETTINGS_ON_BOOT:-false}
     volumes:
       - ./instance:/app/instance
-    command: ["gunicorn", "--workers", "1", "--threads", "4", "--timeout", "180", "--access-logfile", "-", "--error-logfile", "-", "--bind", "127.0.0.1:5050", "run:app"]
+    command: ["gunicorn", "--workers", "1", "--threads", "4", "--timeout", "180", "--access-logfile", "-", "--error-logfile", "-", "--bind", "0.0.0.0:5050", "run:app"]
