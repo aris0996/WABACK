@@ -98,10 +98,11 @@ def _log_skip(message, status, reason=None):
 
 def build_prompt(message, contact=None):
     settings = get_settings()
+    history_limit = 20
     history = (
         Message.query.filter_by(chat_id=message.chat_id)
         .order_by(Message.created_at.desc())
-        .limit(10)
+        .limit(history_limit)
         .all()
     )
     history = list(reversed(history))
@@ -130,13 +131,19 @@ Identitas kontak:
 Memory kontak:
 {memory_block or '- Belum ada memory khusus. Pakai konteks chat terbaru dan tetap hati-hati.'}
 
-Konteks 10 pesan terakhir:
+Konteks {history_limit} pesan terakhir:
 {transcript}
 
 Pesan terbaru:
 {message.body}
 
 Instruksi:
+- Fokus utama hanya pada pesan terbaru dan konteks percakapan yang masih relevan.
+- Jika user bertanya topik baru, jawab topik baru itu. Jangan mengulang jawaban topik lama.
+- Jika user menyingkat kata seperti "js", tafsirkan secara masuk akal dari konteks terbaru. Jika masih ambigu, tanya klarifikasi singkat.
+- Jika user bertanya siapa kamu / apakah kamu Faaris / apakah kamu manusia tertentu:
+  jawab jujur bahwa kamu adalah asisten chat AI milik admin, bukan menyamar sebagai orang lain.
+- Jika user bertanya siapa dia, jangan mengarang identitasnya. Gunakan nama kontak jika ada, atau jawab bahwa kamu mengenalnya dari nama chat saja.
 - Jangan mengarang data yang tidak diketahui.
 - Jika butuh data tambahan, minta klarifikasi singkat.
 - Jawab dalam bahasa Indonesia kecuali user memakai bahasa lain.
@@ -148,6 +155,8 @@ Instruksi:
 - Prioritaskan chat terbaru dibanding memory lama jika ada konflik.
 - Prioritaskan pinned memory dan catatan admin di atas inferensi.
 - Jika tidak yakin, jangan nebak. Pilih klarifikasi singkat yang natural.
+- Hindari definisi yang terlalu formal atau seperti artikel kecuali memang diminta.
+- Balas seperti chat WhatsApp yang natural, singkat, dan langsung ke inti.
 - Hindari jawaban generik, kaku, terlalu panjang, atau terasa seperti bot.
 - Berikan hanya isi balasan WhatsApp, tanpa markdown berlebihan."""
 

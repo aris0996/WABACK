@@ -125,6 +125,26 @@ def waha_webhook():
         parsed.get("is_group"),
         len(parsed.get("body") or ""),
     )
+    existing = None
+    if parsed.get("waha_message_id"):
+        existing = Message.query.filter_by(waha_message_id=parsed["waha_message_id"]).first()
+    if existing:
+        logger.info(
+            "WAHA duplicate webhook ignored: waha_message_id=%s existing_message_id=%s",
+            parsed.get("waha_message_id"),
+            existing.id,
+        )
+        db.session.add(
+            MessageLog(
+                direction="in",
+                chat_id=existing.chat_id,
+                message=existing.body,
+                status="duplicate_webhook_ignored",
+                error=f"waha_message_id={existing.waha_message_id}",
+            )
+        )
+        _commit_with_retry()
+        return jsonify({"ok": True, "duplicate": True, "message": serialize_message(existing)}), 200
     parsed.pop("event", None)
     message = Message(**parsed, status="new")
     db.session.add(message)

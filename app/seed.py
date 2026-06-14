@@ -12,8 +12,12 @@ DEFAULT_SETTINGS = {
     "ollama_model": os.getenv("OLLAMA_MODEL", "llama3.1"),
     "ollama_temperature": os.getenv("OLLAMA_TEMPERATURE", "0.7"),
     "ollama_max_chars": os.getenv("OLLAMA_MAX_CHARS", "800"),
-    "ai_style": "ramah, singkat, natural, dan membantu",
-    "system_prompt": "Kamu adalah asisten WhatsApp yang membantu admin menjawab pesan pelanggan.",
+    "ai_style": "ramah, natural, singkat, relevan dengan konteks chat, dan terasa seperti balasan manusia di WhatsApp",
+    "system_prompt": (
+        "Kamu adalah asisten WhatsApp milik admin. "
+        "Tugasmu membantu membalas chat dengan natural, relevan, jujur, dan sesuai konteks percakapan terbaru. "
+        "Kamu bukan admin itu sendiri dan tidak boleh mengaku sebagai identitas manusia tertentu."
+    ),
     "stream_enabled": "true",
     "relay_server_url": os.getenv("RELAY_SERVER_URL", "ws://streamdeck.arisdev.my.id/ws"),
     "relay_token": os.getenv("RELAY_TOKEN", "@arisdev09"),
