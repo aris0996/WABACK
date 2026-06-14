@@ -1,7 +1,7 @@
 from flask import Flask, jsonify
 from .config import Config
 from .extensions import cors, db, jwt
-from .seed import seed_defaults
+from .seed import ensure_schema_updates, seed_defaults
 from .services.relay_client import relay_client
 from .services.scheduler_service import scheduler_service
 
@@ -45,6 +45,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        ensure_schema_updates()
         seed_defaults()
         relay_client.configure_from_db(app)
         relay_client.start()

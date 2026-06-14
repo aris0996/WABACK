@@ -24,6 +24,27 @@ DEFAULT_SETTINGS = {
 }
 
 
+def ensure_schema_updates():
+    inspector = db.inspect(db.engine)
+    if "contacts" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("contacts")}
+    additions = {
+        "priority_level": "ALTER TABLE contacts ADD COLUMN priority_level VARCHAR(20) NOT NULL DEFAULT 'normal'",
+        "daily_auto_reply_limit": "ALTER TABLE contacts ADD COLUMN daily_auto_reply_limit INTEGER",
+        "cooldown_seconds": "ALTER TABLE contacts ADD COLUMN cooldown_seconds INTEGER NOT NULL DEFAULT 0",
+        "fallback_to_draft_on_error": "ALTER TABLE contacts ADD COLUMN fallback_to_draft_on_error BOOLEAN NOT NULL DEFAULT 1",
+        "keyword_match_mode": "ALTER TABLE contacts ADD COLUMN keyword_match_mode VARCHAR(20) NOT NULL DEFAULT 'contains'",
+        "last_auto_replied_at": "ALTER TABLE contacts ADD COLUMN last_auto_replied_at DATETIME",
+        "last_inbound_at": "ALTER TABLE contacts ADD COLUMN last_inbound_at DATETIME",
+    }
+    for name, sql in additions.items():
+        if name not in columns:
+            db.session.execute(db.text(sql))
+    db.session.commit()
+
+
 def seed_defaults():
     if not AdminUser.query.filter_by(username="admin").first():
         db.session.add(AdminUser(username="admin", password_hash=generate_password_hash("admin123")))
@@ -43,6 +64,18 @@ def seed_defaults():
     Contact.query.filter_by(permission="default").update({
         "permission": "blocked",
         "reply_mode": "disabled",
+    })
+    Contact.query.filter((Contact.priority_level.is_(None)) | (Contact.priority_level == "")).update({
+        "priority_level": "normal",
+    })
+    Contact.query.filter(Contact.keyword_match_mode.is_(None)).update({
+        "keyword_match_mode": "contains",
+    })
+    Contact.query.filter(Contact.cooldown_seconds.is_(None)).update({
+        "cooldown_seconds": 0,
+    })
+    Contact.query.filter(Contact.fallback_to_draft_on_error.is_(None)).update({
+        "fallback_to_draft_on_error": True,
     })
 
     db.session.commit()

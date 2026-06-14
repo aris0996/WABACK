@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from ..extensions import db
 from ..models import AiDraft, Contact, Message, MessageLog
@@ -36,6 +37,8 @@ def get_contact_for_message(message):
         if contact.chat_id != message.chat_id and message.chat_id:
             # Keep the latest concrete chat id so future matching becomes simpler.
             contact.chat_id = message.chat_id
+        if not message.from_me:
+            contact.last_inbound_at = message.timestamp or datetime.utcnow()
             db.session.commit()
         return contact
     contact = Contact(
@@ -44,23 +47,28 @@ def get_contact_for_message(message):
         type="group" if message.is_group else "private",
         permission="blocked",
         reply_mode="disabled",
+        last_inbound_at=message.timestamp or datetime.utcnow(),
     )
     db.session.add(contact)
     db.session.commit()
     return contact
 
 
-def _log_skip(message, reason):
+def _log_event(message, status, reason=None, *, direction="in", text=None):
     db.session.add(
         MessageLog(
-            direction="in",
+            direction=direction,
             chat_id=message.chat_id,
-            message=message.body or "",
-            status="skip",
+            message=text if text is not None else (message.body or ""),
+            status=status,
             error=reason,
         )
     )
     db.session.commit()
+
+
+def _log_skip(message, status, reason=None):
+    _log_event(message, status, reason)
 
 
 def build_prompt(message, contact=None):
@@ -153,43 +161,99 @@ def is_active_now(contact):
     return now >= contact.active_start or now <= contact.active_end
 
 
+def keyword_matches(contact, text):
+    keyword = (contact.trigger_keyword or "").strip()
+    if not keyword:
+        return False
+    haystack = (text or "").strip()
+    mode = (contact.keyword_match_mode or "contains").strip().lower()
+    if mode == "exact":
+        return haystack.lower() == keyword.lower()
+    if mode == "regex":
+        try:
+            return re.search(keyword, haystack, re.IGNORECASE) is not None
+        except re.error:
+            return False
+    return keyword.lower() in haystack.lower()
+
+
+def daily_limit_reached(contact):
+    limit = contact.daily_auto_reply_limit
+    if not limit or limit <= 0:
+        return False
+    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    count = MessageLog.query.filter(
+        MessageLog.chat_id == contact.chat_id,
+        MessageLog.status == "auto_reply_sent",
+        MessageLog.created_at >= start_of_day,
+    ).count()
+    return count >= limit
+
+
+def cooldown_active(contact):
+    if not contact.cooldown_seconds or contact.cooldown_seconds <= 0 or not contact.last_auto_replied_at:
+        return False
+    seconds = (datetime.utcnow() - contact.last_auto_replied_at).total_seconds()
+    return seconds < contact.cooldown_seconds
+
+
 def handle_auto_reply(message):
     if message.from_me or not message.body:
-        _log_skip(message, "skip: from_me_or_empty")
+        _log_skip(message, "auto_reply_skip", "from_me_or_empty")
         return
     contact = get_contact_for_message(message)
-    if contact.permission == "blocked" or contact.reply_mode == "disabled":
-        _log_skip(message, f"skip: contact_permission={contact.permission}, reply_mode={contact.reply_mode}")
+    if contact.permission == "blocked":
+        _log_skip(message, "blocked", "contact permission blocked")
+        return
+    if contact.reply_mode == "disabled":
+        _log_skip(message, "disabled", "reply mode disabled")
         return
     if not is_active_now(contact):
-        _log_skip(message, "skip: outside_active_hours")
+        _log_skip(message, "outside_active_hours", f"{contact.active_start or '-'} to {contact.active_end or '-'}")
         return
     if message.is_group:
-        keyword = (contact.trigger_keyword or "").lower().strip()
-        if not keyword or keyword not in (message.body or "").lower():
-            _log_skip(message, f"skip: group_without_keyword keyword={keyword or '-'}")
+        if not keyword_matches(contact, message.body):
+            _log_skip(message, "keyword_not_matched", f"mode={contact.keyword_match_mode}, keyword={contact.trigger_keyword or '-'}")
             return
     if contact.reply_mode == "manual_only":
-        _log_skip(message, "skip: manual_only")
+        _log_skip(message, "manual_only", "manual review required")
         return
     if contact.reply_mode == "ai_draft":
         generate_ai_draft(message, contact)
+        _log_event(message, "draft_created", "draft generated for manual review")
         return
     if contact.reply_mode == "auto_reply" and contact.permission == "allowed":
-        draft = generate_ai_draft(message, contact)
+        if daily_limit_reached(contact):
+            _log_skip(message, "daily_limit_reached", f"limit={contact.daily_auto_reply_limit}")
+            return
+        if cooldown_active(contact):
+            _log_skip(message, "cooldown_active", f"cooldown_seconds={contact.cooldown_seconds}")
+            return
+        try:
+            draft = generate_ai_draft(message, contact)
+        except Exception as exc:
+            if contact.fallback_to_draft_on_error:
+                _log_event(message, "fallback_to_draft", f"AI generate failed: {exc}")
+                return
+            raise
         text = draft.edited_response or draft.response or ""
         try:
-            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_start"))
-            db.session.commit()
+            _log_event(message, "auto_reply_start", f"preset=auto priority={contact.priority_level}", direction="out", text=text)
             waha_service.send_typing(message.chat_id)
             waha_service.human_delay(text)
             waha_service.stop_typing(message.chat_id)
             waha_service.send_text(message.chat_id, text)
             message.status = "replied"
-            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_sent"))
+            contact.last_auto_replied_at = datetime.utcnow()
+            db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_sent", error=f"cooldown={contact.cooldown_seconds}, limit={contact.daily_auto_reply_limit or 0}"))
             db.session.commit()
             relay_client.send_event(get_settings()["relay_flutter_target_device_id"], "message_replied", {"message_id": message.id, "chat_id": message.chat_id})
         except Exception as exc:
+            if contact.fallback_to_draft_on_error:
+                message.status = "draft_ready"
+                db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="fallback_to_draft", error=str(exc)))
+                db.session.commit()
+                return
             message.status = "send_error"
             db.session.add(MessageLog(direction="out", chat_id=message.chat_id, message=text, status="auto_reply_failed", error=str(exc)))
             db.session.commit()

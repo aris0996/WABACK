@@ -21,18 +21,86 @@ def serialize(contact):
         "active_end": contact.active_end,
         "ai_style_override": contact.ai_style_override,
         "max_chars_override": contact.max_chars_override,
+        "priority_level": contact.priority_level,
+        "daily_auto_reply_limit": contact.daily_auto_reply_limit,
+        "cooldown_seconds": contact.cooldown_seconds,
+        "fallback_to_draft_on_error": contact.fallback_to_draft_on_error,
+        "keyword_match_mode": contact.keyword_match_mode,
+        "last_auto_replied_at": contact.last_auto_replied_at.isoformat() if contact.last_auto_replied_at else None,
+        "last_inbound_at": contact.last_inbound_at.isoformat() if contact.last_inbound_at else None,
+        "preset": detect_preset(contact),
         "notes": contact.notes,
         "created_at": contact.created_at.isoformat() if contact.created_at else None,
         "updated_at": contact.updated_at.isoformat() if contact.updated_at else None,
     }
 
 
+def parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def parse_int(value):
+    if value in (None, "", "null"):
+        return None
+    return int(value)
+
+
+def detect_preset(contact):
+    if contact.permission == "blocked" or contact.reply_mode == "disabled":
+        return "off"
+    if contact.reply_mode == "manual_only":
+        return "manual"
+    if contact.reply_mode == "ai_draft":
+        return "draft"
+    if contact.reply_mode == "auto_reply" and contact.permission == "allowed":
+        return "auto"
+    return "custom"
+
+
+def apply_preset(contact, preset):
+    mapping = {
+        "off": ("blocked", "disabled"),
+        "manual": ("allowed", "manual_only"),
+        "draft": ("allowed", "ai_draft"),
+        "auto": ("allowed", "auto_reply"),
+    }
+    if preset not in mapping:
+        raise ValueError("preset tidak valid")
+    contact.permission, contact.reply_mode = mapping[preset]
+
+
 def apply(contact, payload):
-    for key in ["chat_id", "name", "type", "permission", "reply_mode", "trigger_keyword", "active_start", "active_end", "ai_style_override", "notes"]:
+    if "preset" in payload and payload["preset"]:
+        apply_preset(contact, payload["preset"])
+
+    for key in [
+        "chat_id",
+        "name",
+        "type",
+        "permission",
+        "reply_mode",
+        "trigger_keyword",
+        "active_start",
+        "active_end",
+        "ai_style_override",
+        "notes",
+        "priority_level",
+        "keyword_match_mode",
+    ]:
         if key in payload:
             setattr(contact, key, payload[key])
     if "max_chars_override" in payload:
-        contact.max_chars_override = payload["max_chars_override"]
+        contact.max_chars_override = parse_int(payload["max_chars_override"])
+    if "daily_auto_reply_limit" in payload:
+        contact.daily_auto_reply_limit = parse_int(payload["daily_auto_reply_limit"])
+    if "cooldown_seconds" in payload:
+        contact.cooldown_seconds = parse_int(payload["cooldown_seconds"]) or 0
+    if "fallback_to_draft_on_error" in payload:
+        contact.fallback_to_draft_on_error = parse_bool(payload["fallback_to_draft_on_error"])
 
 
 def _chat_id_from_waha(chat):
@@ -133,6 +201,23 @@ def list_contacts():
     return jsonify([serialize(item) for item in contacts])
 
 
+@contacts_bp.get("/summary")
+@auth_required
+def contacts_summary():
+    contacts = Contact.query.all()
+    return jsonify({
+        "total": len(contacts),
+        "blocked": sum(1 for item in contacts if item.permission == "blocked"),
+        "allowed": sum(1 for item in contacts if item.permission == "allowed"),
+        "draft": sum(1 for item in contacts if item.reply_mode == "ai_draft"),
+        "auto_reply": sum(1 for item in contacts if item.reply_mode == "auto_reply"),
+        "manual_only": sum(1 for item in contacts if item.reply_mode == "manual_only"),
+        "groups": sum(1 for item in contacts if item.type == "group"),
+        "private": sum(1 for item in contacts if item.type != "group"),
+        "vip": sum(1 for item in contacts if item.priority_level == "vip"),
+    })
+
+
 @contacts_bp.get("/waha")
 @auth_required
 def list_waha_chats():
@@ -170,6 +255,46 @@ def sync_waha_chats():
         return jsonify({"error": "waha_sync_failed", "message": str(exc)}), 502
 
 
+@contacts_bp.get("/rules-preview/<path:chat_id>")
+@auth_required
+def rules_preview(chat_id):
+    normalized = serialize_chat_id(chat_id)
+    contact = Contact.query.filter_by(chat_id=normalized).first()
+    if not contact:
+        short_id = user_part(normalized)
+        if short_id:
+            contact = Contact.query.filter_by(chat_id=short_id).first()
+    if not contact:
+        return jsonify({
+            "chat_id": normalized,
+            "found": False,
+            "effective": {
+                "permission": "blocked",
+                "reply_mode": "disabled",
+                "preset": "off",
+            },
+        })
+    latest_message = Message.query.filter_by(chat_id=contact.chat_id).order_by(Message.created_at.desc()).first()
+    return jsonify({
+        "chat_id": normalized,
+        "found": True,
+        "contact": serialize(contact),
+        "effective": {
+            "permission": contact.permission,
+            "reply_mode": contact.reply_mode,
+            "preset": detect_preset(contact),
+            "type": contact.type,
+            "active_window": {"start": contact.active_start, "end": contact.active_end},
+            "keyword": contact.trigger_keyword,
+            "keyword_match_mode": contact.keyword_match_mode,
+            "cooldown_seconds": contact.cooldown_seconds,
+            "daily_auto_reply_limit": contact.daily_auto_reply_limit,
+            "last_message_body": latest_message.body if latest_message else None,
+            "last_message_at": latest_message.created_at.isoformat() if latest_message and latest_message.created_at else None,
+        },
+    })
+
+
 @contacts_bp.post("")
 @auth_required
 def create_contact():
@@ -187,6 +312,22 @@ def create_contact():
 @auth_required
 def get_contact(contact_id):
     return jsonify(serialize(Contact.query.get_or_404(contact_id)))
+
+
+@contacts_bp.post("/<int:contact_id>/preset")
+@auth_required
+def set_contact_preset(contact_id):
+    contact = Contact.query.get_or_404(contact_id)
+    payload = request.get_json(silent=True) or {}
+    preset = (payload.get("preset") or "").strip().lower()
+    if not preset:
+        return jsonify({"error": "validation_error", "message": "preset wajib diisi"}), 400
+    try:
+        apply_preset(contact, preset)
+    except ValueError as exc:
+        return jsonify({"error": "validation_error", "message": str(exc)}), 400
+    db.session.commit()
+    return jsonify(serialize(contact))
 
 
 @contacts_bp.put("/<int:contact_id>")
