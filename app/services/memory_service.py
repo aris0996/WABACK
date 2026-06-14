@@ -3,6 +3,7 @@ import logging
 from collections import OrderedDict
 from ..extensions import db
 from ..models import ContactMemory, Message
+from .chat_identity import chat_id_candidates
 from .ollama_service import ollama_service
 from .settings_service import get_settings
 
@@ -44,16 +45,27 @@ def build_memory_block(contact):
 
 
 def _history_lines(contact, limit=24):
+    candidate_ids = chat_id_candidates(contact.chat_id)
     rows = (
-        Message.query.filter_by(chat_id=contact.chat_id)
+        Message.query.filter(Message.chat_id.in_(candidate_ids))
         .order_by(Message.created_at.desc())
-        .limit(limit)
+        .limit(limit * 2)
         .all()
     )
-    rows.reverse()
+    unique = []
+    seen = set()
+    for item in rows:
+        key = item.waha_message_id or f"{item.chat_id}:{item.timestamp}:{item.body}"
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+        if len(unique) >= limit:
+            break
+    unique.reverse()
     return [
         f"{'Admin' if item.from_me else (item.sender_name or item.sender_id or 'User')}: {(item.body or '').strip()}"
-        for item in rows
+        for item in unique
         if (item.body or "").strip()
     ]
 
@@ -63,14 +75,25 @@ def _fallback_extract(contact):
     lowered = text.lower()
     suggestions = OrderedDict()
 
+    suggestions["profile"] = (
+        "Kontak ini adalah chat grup, utamakan konteks dan hindari balasan impulsif."
+        if contact.type == "group"
+        else "Kontak ini adalah chat pribadi, utamakan nada personal, natural, dan relevan."
+    )
     if contact.type == "private":
-        suggestions["profile"] = "Kontak ini adalah chat pribadi, utamakan nada personal dan natural."
+        suggestions["tone"] = "Gunakan balasan hangat, sederhana, dan tidak terasa seperti bot."
     if contact.priority_level == "vip":
         suggestions["preference"] = "Kontak ini prioritas VIP, utamakan respons hangat, cepat, dan penuh perhatian."
+    if contact.ai_style_override:
+        suggestions["style_override"] = f"Ikuti gaya khusus kontak ini: {contact.ai_style_override.strip()[:220]}"
+    if contact.notes:
+        suggestions["notes"] = f"Perhatikan catatan admin ini: {contact.notes.strip()[:220]}"
     if "sayang" in lowered or "ayang" in lowered:
         suggestions["relationship"] = "Kontak ini kemungkinan dekat secara personal; balasan sebaiknya hangat, lembut, dan akrab."
     if "terima kasih" in lowered or "makasih" in lowered:
         suggestions["tone"] = "Kontak ini cocok dijawab dengan nada sopan, hangat, dan tidak kaku."
+    if "?" in text:
+        suggestions["behavior"] = "Jika pesan tidak jelas, lebih baik klarifikasi singkat daripada mengarang jawaban."
 
     return [
         {"category": key, "content": value, "confidence": "medium"}
@@ -136,7 +159,7 @@ Riwayat chat:
 def refresh_contact_memory(contact):
     extracted = extract_memories(contact)
     if not extracted:
-        return []
+        extracted = _fallback_extract(contact)
 
     ContactMemory.query.filter_by(contact_id=contact.id, pinned=False).delete()
     for item in extracted:
