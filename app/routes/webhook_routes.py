@@ -168,7 +168,14 @@ def _can_reply(contact, message):
     return True, "allowed"
 
 
-def _run_auto_reply(app, contact_id, message, incoming_message_id):
+def _format_ai_reply(reply):
+    prefix = get_setting("ai_reply_prefix", "")
+    if not prefix:
+        return reply
+    return f"{prefix}{reply}"
+
+
+def _run_auto_reply(app, contact_id, message, incoming_message_id, sender_name=""):
     with app.app_context():
         started_at = time.monotonic()
         contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
@@ -176,16 +183,25 @@ def _run_auto_reply(app, contact_id, message, incoming_message_id):
         if not can_reply:
             log_event("INFO", "WAHA auto reply skipped", {"contact_id": contact_id, "chat_id": contact["chat_id"], "reason": reason})
             return
+        typing_started = False
         try:
+            if get_setting("waha_typing_enabled", "true") == "true":
+                try:
+                    waha_service.start_typing(contact["chat_id"])
+                    typing_started = True
+                    log_event("INFO", "WAHA typing started", {"contact_id": contact_id, "chat_id": contact["chat_id"]})
+                except Exception as exc:
+                    log_event("WARNING", "WAHA typing failed", {"contact_id": contact_id, "chat_id": contact["chat_id"], "error": str(exc)})
             delay = float(get_setting("reply_delay_seconds", "0") or 0)
             if delay > 0:
                 time.sleep(min(delay, 10))
             ai_started_at = time.monotonic()
-            reply = chatbot_service.generate_reply(contact_id, message)
+            reply = chatbot_service.generate_reply(contact_id, message, sender_name=sender_name)
             ai_ms = int((time.monotonic() - ai_started_at) * 1000)
             if not reply:
                 log_event("WARNING", "WAHA auto reply empty", {"contact_id": contact_id, "chat_id": contact["chat_id"], "ai_ms": ai_ms})
                 return
+            reply = _format_ai_reply(reply)
             send_started_at = time.monotonic()
             send_result = waha_service.send_message(contact["wa_number"], reply, chat_id=contact["chat_id"])
             send_ms = int((time.monotonic() - send_started_at) * 1000)
@@ -208,6 +224,13 @@ def _run_auto_reply(app, contact_id, message, incoming_message_id):
             )
         except Exception as exc:
             log_event("ERROR", "WAHA auto reply failed", {"contact_id": contact_id, "error": str(exc), "total_ms": int((time.monotonic() - started_at) * 1000)})
+        finally:
+            if typing_started:
+                try:
+                    waha_service.stop_typing(contact["chat_id"])
+                    log_event("INFO", "WAHA typing stopped", {"contact_id": contact_id, "chat_id": contact["chat_id"]})
+                except Exception as exc:
+                    log_event("WARNING", "WAHA stop typing failed", {"contact_id": contact_id, "chat_id": contact["chat_id"], "error": str(exc)})
 
 
 @webhook_bp.post("/webhook/waha")
@@ -253,6 +276,6 @@ def waha_webhook():
     log_event("INFO", "WAHA inbound message saved", {"contact_id": contact["id"], "chat_id": contact["chat_id"], "chat_type": contact["chat_type"], "message_id": cur.lastrowid})
 
     app = current_app._get_current_object()
-    thread = threading.Thread(target=_run_auto_reply, args=(app, contact["id"], parsed["message"], cur.lastrowid), daemon=True)
+    thread = threading.Thread(target=_run_auto_reply, args=(app, contact["id"], parsed["message"], cur.lastrowid, parsed["sender_name"]), daemon=True)
     thread.start()
     return jsonify({"ok": True, "reply_queued": True})

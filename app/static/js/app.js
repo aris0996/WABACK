@@ -299,7 +299,7 @@ async function sendManual(contact_id) {
 
 function fieldHtml(key, label) {
   const val = state.config[key] || '';
-  if (['waha_enabled', 'global_auto_reply', 'default_contact_auto_reply'].includes(key)) {
+  if (['waha_enabled', 'global_auto_reply', 'default_contact_auto_reply', 'waha_typing_enabled'].includes(key)) {
     return `<label>${label}<select name="${key}"><option value="true" ${val === 'true' ? 'selected' : ''}>On</option><option value="false" ${val !== 'true' ? 'selected' : ''}>Off</option></select></label>`;
   }
   if (key === 'group_trigger_keywords' || key === 'prompt_chatbot') return `<label>${label}<textarea name="${key}">${esc(val)}</textarea></label>`;
@@ -322,7 +322,7 @@ function renderSettings() {
     ]),
     settingsGroup('Auto Reply', [
       ['global_auto_reply', 'Global auto reply'], ['reply_delay_seconds', 'Reply delay detik'], ['default_contact_auto_reply', 'Default direct chat auto reply'],
-      ['history_context_limit', 'Jumlah history untuk konteks'], ['group_trigger_keywords', 'Default trigger keyword grup'],
+      ['history_context_limit', 'Jumlah history untuk konteks'], ['waha_typing_enabled', 'Tampilkan status mengetik'], ['ai_reply_prefix', 'Format penanda balasan AI'], ['group_trigger_keywords', 'Default trigger keyword grup'],
     ]),
   ].join('');
 }

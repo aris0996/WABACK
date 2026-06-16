@@ -37,6 +37,30 @@ def send_message(wa_number, text, chat_id=None):
     return response.json() if response.content else {"ok": True}
 
 
+def set_presence(chat_id, presence):
+    session = get_setting("waha_session", "default")
+    target_chat_id = normalize_chat_id(chat_id)
+    if not target_chat_id:
+        raise ValueError("Chat ID WhatsApp tidak valid")
+    payload = {"chatId": target_chat_id, "presence": presence}
+    response = requests.post(
+        f"{_base_url()}/api/{session}/presence",
+        json=payload,
+        headers=_headers(),
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json() if response.content else {"ok": True}
+
+
+def start_typing(chat_id):
+    return set_presence(chat_id, "typing")
+
+
+def stop_typing(chat_id):
+    return set_presence(chat_id, "paused")
+
+
 def test_connection():
     probe = tcp_probe(_base_url())
     if not probe["ok"]:

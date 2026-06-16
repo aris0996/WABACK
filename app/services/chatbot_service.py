@@ -37,21 +37,26 @@ def _format_history(contact, messages):
     return "\n".join(lines)
 
 
-def build_runtime_prompt(contact, incoming_message):
+def build_runtime_prompt(contact, incoming_message, sender_name=""):
     history = _format_history(contact, _recent_messages(contact["id"]))
     prompt = get_setting("prompt_chatbot", "Jawab pesan WhatsApp secara singkat dan natural.")
+    display_name = contact["display_name"] or contact["wa_number"]
+    latest_sender = sender_name or ("Peserta grup" if contact["chat_type"] == "group" else display_name)
     return (
         f"{prompt}\n\n"
+        f"Nama chat/lawan bicara: {display_name}\n"
+        f"Tipe chat: {contact['chat_type']}\n"
+        f"Pengirim pesan terbaru: {latest_sender}\n\n"
         f"Konteks 5 pesan terbaru:\n{history or '-'}\n\n"
         f"Pesan terbaru yang perlu dijawab:\n{incoming_message}"
     )
 
 
-def generate_reply(contact_id, incoming_message):
+def generate_reply(contact_id, incoming_message, sender_name=""):
     contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
     if not contact or contact["ai_blocked"] or not contact["auto_reply_enabled"]:
         return None
-    prompt = build_runtime_prompt(contact, incoming_message)
+    prompt = build_runtime_prompt(contact, incoming_message, sender_name=sender_name)
     return ollama_service.generate(
         get_setting("chatbot_model", "wa-chatbot"),
         prompt,

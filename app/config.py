@@ -36,6 +36,8 @@ DEFAULT_SETTINGS = {
     "chatbot_num_predict": "180",
     "ollama_keep_alive": "30s",
     "ollama_request_timeout": "300",
+    "ai_reply_prefix": "_Balasan otomatis AI:_\n",
+    "waha_typing_enabled": "true",
     "global_auto_reply": os.getenv("DEFAULT_GLOBAL_AUTO_REPLY", "true"),
     "reply_delay_seconds": "0",
     "default_contact_auto_reply": "true",
@@ -44,5 +46,5 @@ DEFAULT_SETTINGS = {
     "waha_history_sync_limit": "300",
     "waha_sync_page_size": "300",
     "waha_sync_max_contacts": "2000",
-    "prompt_chatbot": "Jawab pesan WhatsApp secara singkat, natural, dan relevan berdasarkan konteks percakapan terakhir.",
+    "prompt_chatbot": "Balas sebagai ArisDev AI milik Faaris secara singkat, natural, dan relevan. Gunakan nama lawan bicara jika tersedia dan terasa cocok. Jangan menulis penanda AI karena aplikasi sudah menambahkannya.",
 }
