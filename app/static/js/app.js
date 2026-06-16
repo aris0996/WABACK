@@ -45,7 +45,6 @@ async function refreshCurrent() {
   if (state.view === 'contacts') await guarded(loadContacts);
   if (state.view === 'settings') renderSettings();
   if (state.view === 'diagnostics') await guarded(loadDiagnostics);
-  if (state.view === 'prompts') renderPrompts();
   if (state.view === 'ai_logs') await guarded(loadAiLogs);
   if (state.view === 'logs') await guarded(loadLogs);
 }
@@ -54,7 +53,6 @@ async function loadConfig() {
   const data = await api('/api/config');
   state.config = data.config;
   if (state.view === 'settings') renderSettings();
-  if (state.view === 'prompts') renderPrompts();
 }
 
 function statusValue(value) {
@@ -302,7 +300,7 @@ function fieldHtml(key, label) {
   if (['waha_enabled', 'global_auto_reply', 'default_contact_auto_reply', 'waha_typing_enabled'].includes(key)) {
     return `<label>${label}<select name="${key}"><option value="true" ${val === 'true' ? 'selected' : ''}>On</option><option value="false" ${val !== 'true' ? 'selected' : ''}>Off</option></select></label>`;
   }
-  if (key === 'group_trigger_keywords' || key === 'prompt_chatbot') return `<label>${label}<textarea name="${key}">${esc(val)}</textarea></label>`;
+  if (key === 'group_trigger_keywords') return `<label>${label}<textarea name="${key}">${esc(val)}</textarea></label>`;
   return `<label>${label}<input name="${key}" value="${esc(val)}"></label>`;
 }
 
@@ -325,10 +323,6 @@ function renderSettings() {
       ['history_context_limit', 'Jumlah history untuk konteks'], ['waha_typing_enabled', 'Tampilkan status mengetik'], ['ai_reply_prefix', 'Format penanda balasan AI'], ['group_trigger_keywords', 'Default trigger keyword grup'],
     ]),
   ].join('');
-}
-
-function renderPrompts() {
-  $('#prompts-form').innerHTML = fieldHtml('prompt_chatbot', 'Prompt chatbot');
 }
 
 async function saveForm(formSel, resultSel) {
@@ -374,7 +368,6 @@ on('#chat-auto-filter', 'change', () => { state.contactOffset = 0; guarded(loadC
 on('#add-contact', 'click', addContact);
 on('#sync-waha-contacts', 'click', syncWahaContacts);
 on('#save-settings', 'click', () => saveForm('#settings-form', '#settings-result'));
-on('#save-prompts', 'click', () => saveForm('#prompts-form', '#prompts-result'));
 on('#test-waha', 'click', () => testService('waha', '#settings-result'));
 on('#test-ollama', 'click', () => testService('ollama', '#settings-result'));
 on('#overview-test-waha', 'click', () => testService('waha', '#overview-test-result'));

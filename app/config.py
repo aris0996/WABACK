@@ -46,5 +46,4 @@ DEFAULT_SETTINGS = {
     "waha_history_sync_limit": "300",
     "waha_sync_page_size": "300",
     "waha_sync_max_contacts": "2000",
-    "prompt_chatbot": "Balas sebagai ArisDev AI milik Faaris secara singkat, natural, dan relevan. Gunakan nama lawan bicara jika tersedia dan terasa cocok. Jangan menulis penanda AI karena aplikasi sudah menambahkannya.",
 }

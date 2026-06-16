@@ -39,16 +39,22 @@ def _format_history(contact, messages):
 
 def build_runtime_prompt(contact, incoming_message, sender_name=""):
     history = _format_history(contact, _recent_messages(contact["id"]))
-    prompt = get_setting("prompt_chatbot", "Jawab pesan WhatsApp secara singkat dan natural.")
     display_name = contact["display_name"] or contact["wa_number"]
     latest_sender = sender_name or ("Peserta grup" if contact["chat_type"] == "group" else display_name)
     return (
-        f"{prompt}\n\n"
-        f"Nama chat/lawan bicara: {display_name}\n"
-        f"Tipe chat: {contact['chat_type']}\n"
-        f"Pengirim pesan terbaru: {latest_sender}\n\n"
-        f"Konteks 5 pesan terbaru:\n{history or '-'}\n\n"
-        f"Pesan terbaru yang perlu dijawab:\n{incoming_message}"
+        "Data teknis percakapan WhatsApp:\n"
+        f"- Nama chat: {display_name}\n"
+        f"- Tipe chat: {contact['chat_type']}\n"
+        f"- Pengirim pesan terbaru: {latest_sender}\n\n"
+        "Aturan runtime:\n"
+        "- Jawab hanya pesan terbaru, dengan mempertimbangkan riwayat terakhir.\n"
+        "- Jangan mengulang pertanyaan yang sudah dijawab di riwayat.\n"
+        "- Jika lawan bicara memberi nama dirinya, akui secara natural dan lanjutkan percakapan.\n"
+        "- Jangan bertanya 'kamu siapa' kecuali identitas lawan benar-benar belum jelas dan memang dibutuhkan.\n"
+        "- Jika ditanya siapa pemilik akun, jawab singkat: akun ini milik Faaris.\n"
+        "- Jika ditanya siapa kamu, jawab singkat: saya ArisDev AI.\n\n"
+        f"Riwayat 5 pesan terbaru:\n{history or '-'}\n\n"
+        f"Pesan terbaru:\n{incoming_message}"
     )
 
 

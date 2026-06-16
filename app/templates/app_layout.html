@@ -7,7 +7,6 @@
     <a class="nav {% if page == 'contacts' %}active{% endif %}" href="{{ url_for('dashboard.contacts_page') }}">Chats</a>
     <a class="nav {% if page == 'settings' %}active{% endif %}" href="{{ url_for('dashboard.settings_page') }}">Settings</a>
     <a class="nav {% if page == 'diagnostics' %}active{% endif %}" href="{{ url_for('dashboard.diagnostics_page') }}">Diagnostics</a>
-    <a class="nav {% if page == 'prompts' %}active{% endif %}" href="{{ url_for('dashboard.prompts_page') }}">Prompt Editor</a>
     <a class="nav {% if page == 'ai_logs' %}active{% endif %}" href="{{ url_for('dashboard.ai_logs_page') }}">AI Logs</a>
     <a class="nav {% if page == 'logs' %}active{% endif %}" href="{{ url_for('dashboard.logs_page') }}">Logs</a>
     <form method="post" action="/logout"><button class="logout">Logout</button></form>

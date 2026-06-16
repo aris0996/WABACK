@@ -49,17 +49,6 @@ def diagnostics_page():
     )
 
 
-@dashboard_bp.get("/prompts")
-@login_required
-def prompts_page():
-    return render_template(
-        "pages/prompts.html",
-        page="prompts",
-        title="Prompt Editor",
-        subtitle="Prompt runtime tambahan. Personality utama tetap dari Modelfile.",
-    )
-
-
 @dashboard_bp.get("/logs")
 @login_required
 def logs_page():
