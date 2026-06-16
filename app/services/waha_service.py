@@ -29,6 +29,14 @@ def send_message(wa_number, text):
 
 
 def test_connection():
-    response = requests.get(f"{_base_url()}/api/sessions", headers=_headers(), timeout=10)
-    response.raise_for_status()
-    return response.json()
+    errors = []
+    for path in ("/api/sessions", "/api/server/status"):
+        url = f"{_base_url()}{path}"
+        try:
+            response = requests.get(url, headers=_headers(), timeout=10)
+            response.raise_for_status()
+            body = response.json() if response.content else {"ok": True}
+            return {"url": url, "result": body}
+        except Exception as exc:
+            errors.append({"url": url, "error": str(exc)})
+    raise RuntimeError(errors)

@@ -48,7 +48,7 @@ Hanya build tanpa menjalankan container:
 ./build.sh --skip-start
 ```
 
-Catatan: Docker tidak menyediakan persentase real untuk setiap layer build. Persentase di script menunjukkan fase proses, sementara detail layer tetap berasal dari `docker compose build --progress=plain`.
+Catatan: Docker tidak menyediakan persentase real untuk setiap layer build. Persentase di script menunjukkan fase proses, sementara detail layer tetap berasal dari `docker compose build --progress=plain`. Validasi Compose memakai mode quiet agar isi `.env` tidak tercetak ke log.
 
 ## Konfigurasi `.env`
 
@@ -232,6 +232,7 @@ Urutan pengecekan webhook:
 
 - Pastikan Ollama berjalan: `ollama list`.
 - Dari Docker, gunakan `http://host.docker.internal:11434`.
+- Di Linux, `docker-compose.yml` sudah menambahkan `host.docker.internal:host-gateway`. Jalankan ulang `docker compose up -d --build` setelah pull update.
 - Pastikan model sudah dibuat dengan `ollama create`.
 
 ### WAHA tidak konek
@@ -260,3 +261,25 @@ Urutan pengecekan webhook:
 
 - Gunakan `DEFAULT_OLLAMA_BASE_URL=http://host.docker.internal:11434`.
 - Di Linux tertentu, tambahkan host gateway di compose jika diperlukan.
+
+### Melihat log GitHub webhook
+
+Dari dashboard buka menu Logs, lalu ketik `github` di filter. Event update akan muncul sebagai:
+
+```text
+GitHub auto update completed
+GitHub auto update failed
+GitHub update rejected: invalid signature
+```
+
+Dari terminal server:
+
+```bash
+docker compose logs -f wa-ai-memory-bot
+```
+
+Untuk cek status Git dari endpoint:
+
+```bash
+curl -H "X-Update-Key: isi-api-key" http://IP_SERVER:PORT/webhook/github/status
+```

@@ -1,24 +1,65 @@
-const state = { config: {}, contacts: [], activeContact: null };
+const state = { config: {}, contacts: [], activeContact: null, view: 'overview' };
 
 const $ = (sel) => document.querySelector(sel);
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pretty = (value) => JSON.stringify(value, null, 2);
+
+const pages = {
+  overview: ['Overview', 'Status sistem auto reply dan memory.'],
+  contacts: ['Contacts', 'Kelola nomor, auto reply, block AI, chat, dan memory.'],
+  settings: ['Settings', 'Konfigurasi WAHA, Ollama, auto reply, allowlist, dan memory.'],
+  prompts: ['Prompt Editor', 'Prompt runtime tambahan. Personality utama tetap dari Modelfile.'],
+  logs: ['Logs', 'Riwayat event sistem, error koneksi, webhook, dan auto update.'],
+};
+
+function toast(message, type = 'ok') {
+  const box = $('#toast');
+  box.textContent = message;
+  box.className = `toast ${type}`;
+  setTimeout(() => box.classList.add('hidden'), 4200);
+}
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options
+    ...options,
   });
   const data = await res.json().catch(() => ({ ok: false, error: 'Invalid response' }));
   if (!res.ok || data.ok === false) throw new Error(data.error || 'Request failed');
   return data;
 }
 
-function show(view) {
+async function guarded(action, successMessage = '') {
+  try {
+    const result = await action();
+    if (successMessage) toast(successMessage);
+    return result;
+  } catch (err) {
+    toast(err.message, 'error');
+    throw err;
+  }
+}
+
+function setPage(view) {
+  state.view = view;
+  const [title, subtitle] = pages[view];
+  $('#page-title').textContent = title;
+  $('#page-subtitle').textContent = subtitle;
   document.querySelectorAll('.nav').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
-  if (view === 'overview') loadOverview();
-  if (view === 'contacts') loadContacts();
-  if (view === 'logs') loadLogs();
+}
+
+function show(view) {
+  setPage(view);
+  refreshCurrent();
+}
+
+async function refreshCurrent() {
+  if (state.view === 'overview') await guarded(loadOverview);
+  if (state.view === 'contacts') await guarded(loadContacts);
+  if (state.view === 'settings') renderSettings();
+  if (state.view === 'prompts') renderPrompts();
+  if (state.view === 'logs') await guarded(loadLogs);
 }
 
 async function loadConfig() {
@@ -28,32 +69,65 @@ async function loadConfig() {
   renderPrompts();
 }
 
+function statusValue(value) {
+  return value === 'true' ? '<span class="status on">On</span>' : '<span class="status off">Off</span>';
+}
+
 async function loadOverview() {
   const data = await api('/api/overview');
+  state.config = data.config;
   const cards = [
-    ['Kontak', data.stats.contacts],
-    ['Pesan', data.stats.messages],
-    ['Memory', data.stats.memories],
-    ['Global Auto Reply', data.config.global_auto_reply],
-    ['Memory Auto Generate', data.config.memory_auto_generate],
-    ['WAHA URL', data.config.waha_base_url],
-    ['Ollama URL', data.config.ollama_base_url],
+    ['Kontak', data.stats.contacts, 'Nomor yang sudah pernah masuk atau dibuat manual'],
+    ['Pesan', data.stats.messages, 'Total pesan masuk dan keluar'],
+    ['Memory', data.stats.memories, 'Kontak yang sudah punya memory final'],
+    ['Global Auto Reply', statusValue(data.config.global_auto_reply), 'Master switch balasan otomatis'],
+    ['Memory Auto Generate', statusValue(data.config.memory_auto_generate), 'Generate incremental otomatis'],
+    ['Model Chatbot', data.config.chatbot_model, 'Harus model hasil Modelfile'],
   ];
-  $('#overview-cards').innerHTML = cards.map(([label, value]) => `<div class="stat">${esc(label)}<strong>${esc(value)}</strong></div>`).join('');
+  $('#overview-cards').innerHTML = cards.map(([label, value, hint]) => `
+    <div class="stat">
+      <span>${esc(label)}</span>
+      <strong>${typeof value === 'string' && value.includes('<span') ? value : esc(value)}</strong>
+      <small>${esc(hint)}</small>
+    </div>`).join('');
+
+  const origin = window.location.origin;
+  $('#waha-webhook-url').value = `${origin}/webhook/waha`;
+  $('#github-webhook-url').value = `${origin}/webhook/github`;
+}
+
+async function testService(kind, target = '#settings-result') {
+  const path = kind === 'waha' ? '/api/test-waha' : '/api/test-ollama';
+  const label = kind === 'waha' ? 'WAHA' : 'Ollama';
+  const box = $(target);
+  box.textContent = `Testing ${label}...`;
+  const data = await guarded(() => api(path, { method: 'POST', body: '{}' }), `${label} connection OK`);
+  box.textContent = pretty(data);
 }
 
 async function loadContacts() {
   const q = encodeURIComponent($('#contact-search').value || '');
   const data = await api(`/api/contacts?q=${q}`);
   state.contacts = data.contacts;
+  if (!data.contacts.length) {
+    $('#contacts-table').innerHTML = `
+      <tbody><tr><td class="empty-state">
+        Belum ada kontak. Tambahkan nomor manual di atas, atau pastikan webhook WAHA mengarah ke <code>${esc(window.location.origin)}/webhook/waha</code>.
+      </td></tr></tbody>`;
+    return;
+  }
   $('#contacts-table').innerHTML = `
     <thead><tr><th>Nomor</th><th>Nama</th><th>Auto Reply</th><th>AI Blocked</th><th>Memory</th><th>Pesan Baru</th><th>Interval</th><th>Terakhir Chat</th><th>Aksi</th></tr></thead>
     <tbody>${data.contacts.map(c => `
       <tr>
-        <td>${esc(c.wa_number)}</td><td>${esc(c.display_name || '-')}</td>
-        <td>${c.auto_reply_enabled ? 'On' : 'Off'}</td><td>${c.ai_blocked ? 'Ya' : 'Tidak'}</td>
-        <td>${c.has_memory ? 'Ada' : 'Belum'}</td><td>${c.new_message_count_since_memory}</td>
-        <td>${c.memory_generate_interval}</td><td>${esc(c.last_chat_at || '-')}</td>
+        <td><strong>${esc(c.wa_number)}</strong></td>
+        <td>${esc(c.display_name || '-')}</td>
+        <td>${c.auto_reply_enabled ? '<span class="status on">On</span>' : '<span class="status off">Off</span>'}</td>
+        <td>${c.ai_blocked ? '<span class="status bad">Blocked</span>' : '<span class="status on">Allowed</span>'}</td>
+        <td>${c.has_memory ? 'Ada' : 'Belum'}</td>
+        <td>${c.new_message_count_since_memory}</td>
+        <td>${c.memory_generate_interval}</td>
+        <td>${esc(c.last_chat_at || '-')}</td>
         <td><div class="mini-actions">
           <button onclick="openContact(${c.id})">Detail</button>
           <button class="secondary" onclick="postAndReload('/api/contacts/${c.id}/toggle-auto-reply')">Toggle</button>
@@ -62,127 +136,190 @@ async function loadContacts() {
       </tr>`).join('')}</tbody>`;
 }
 
+async function addContact() {
+  const wa_number = $('#new-contact-number').value.trim();
+  const display_name = $('#new-contact-name').value.trim();
+  const data = await guarded(() => api('/api/contacts', {
+    method: 'POST',
+    body: JSON.stringify({ wa_number, display_name }),
+  }), 'Kontak ditambahkan');
+  $('#new-contact-number').value = '';
+  $('#new-contact-name').value = '';
+  await loadContacts();
+  await openContact(data.contact_id);
+}
+
 async function postAndReload(path) {
-  await api(path, { method: 'POST', body: '{}' });
+  await guarded(() => api(path, { method: 'POST', body: '{}' }), 'Perubahan tersimpan');
   await loadContacts();
   if (state.activeContact) await openContact(state.activeContact);
 }
 
 async function openContact(id) {
   state.activeContact = id;
-  const data = await api(`/api/contacts/${id}`);
+  const data = await guarded(() => api(`/api/contacts/${id}`));
   const c = data.contact;
   const memory = data.memory ? JSON.parse(data.memory.memory_json) : {};
   $('#contact-detail').classList.remove('hidden');
   $('#contact-detail').innerHTML = `
-    <h3>${esc(c.wa_number)} <span class="pill">${esc(c.display_name || 'tanpa nama')}</span></h3>
-    <div class="detail-grid">
+    <div class="detail-title">
       <div>
+        <h3>${esc(c.wa_number)}</h3>
+        <p>${esc(c.display_name || 'tanpa nama')}</p>
+      </div>
+      <div class="mini-actions">
+        <button class="secondary" onclick="postAndReload('/api/contacts/${c.id}/toggle-auto-reply')">${c.auto_reply_enabled ? 'Matikan Auto Reply' : 'Aktifkan Auto Reply'}</button>
+        <button class="${c.ai_blocked ? 'secondary' : 'danger'}" onclick="postAndReload('/api/contacts/${c.id}/${c.ai_blocked ? 'unblock-ai' : 'block-ai'}')">${c.ai_blocked ? 'Unblock AI' : 'Block AI'}</button>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="panel inset">
+        <h4>Pengaturan Kontak</h4>
         <label>Nama display<input id="detail-name" value="${esc(c.display_name || '')}"></label>
         <label>Auto generate memory
           <select id="detail-auto-memory"><option value="true" ${c.memory_auto_generate_enabled ? 'selected' : ''}>On</option><option value="false" ${!c.memory_auto_generate_enabled ? 'selected' : ''}>Off</option></select>
         </label>
         <label>Interval generate<input id="detail-interval" type="number" min="1" value="${c.memory_generate_interval}"></label>
-        <p>Pesan baru: <strong>${c.new_message_count_since_memory}</strong></p>
-        <p>Last memory message ID: <strong>${c.last_memory_message_id}</strong></p>
+        <div class="meter">
+          <span>Pesan baru sejak memory</span>
+          <strong>${c.new_message_count_since_memory}/${c.memory_generate_interval}</strong>
+        </div>
+        <p class="note">Last memory message ID: ${c.last_memory_message_id}</p>
         <div class="actions">
           <button onclick="saveContactSettings(${id})">Simpan kontak</button>
           <button onclick="memoryAction(${id}, 'generate-all')">Generate semua</button>
           <button onclick="memoryAction(${id}, 'generate-new')">Generate baru</button>
           <button class="danger" onclick="memoryAction(${id}, 'reset')">Reset memory</button>
         </div>
-        <label>Memory JSON<textarea id="memory-json" class="memory-editor">${esc(JSON.stringify(memory, null, 2))}</textarea></label>
-        <button onclick="saveMemory(${id})">Simpan memory manual</button>
-        <hr>
-        <label>Kirim pesan manual<textarea id="manual-message"></textarea></label>
+        <label>Kirim pesan manual<textarea id="manual-message" placeholder="Tulis pesan untuk dikirim via WAHA"></textarea></label>
         <button onclick="sendManual('${esc(c.wa_number)}')">Kirim via WAHA</button>
       </div>
-      <div><h4>Riwayat Chat</h4><div class="chat-box">
-        ${data.messages.map(m => `<div class="msg ${m.direction}"><small>#${m.id} ${esc(m.direction)} - ${esc(m.created_at)}</small>${esc(m.message)}</div>`).join('')}
-      </div></div>
+      <div class="panel inset">
+        <h4>Memory JSON Final</h4>
+        <label><textarea id="memory-json" class="memory-editor">${esc(JSON.stringify(memory, null, 2))}</textarea></label>
+        <button onclick="saveMemory(${id})">Simpan memory manual</button>
+      </div>
+    </div>
+    <div class="panel inset">
+      <h4>Riwayat Chat</h4>
+      <div class="chat-box">
+        ${data.messages.length ? data.messages.map(m => `<div class="msg ${m.direction}"><small>#${m.id} ${esc(m.direction)} - ${esc(m.created_at)}</small>${esc(m.message)}</div>`).join('') : '<div class="empty-state">Belum ada riwayat chat.</div>'}
+      </div>
     </div>`;
 }
 
 async function saveContactSettings(id) {
-  await api(`/api/contacts/${id}/settings`, { method: 'POST', body: JSON.stringify({
-    display_name: $('#detail-name').value,
-    memory_auto_generate_enabled: $('#detail-auto-memory').value,
-    memory_generate_interval: $('#detail-interval').value
-  })});
+  await guarded(() => api(`/api/contacts/${id}/settings`, {
+    method: 'POST',
+    body: JSON.stringify({
+      display_name: $('#detail-name').value,
+      memory_auto_generate_enabled: $('#detail-auto-memory').value,
+      memory_generate_interval: $('#detail-interval').value,
+    }),
+  }), 'Pengaturan kontak tersimpan');
   await openContact(id);
   await loadContacts();
 }
 
 async function memoryAction(id, action) {
   if (action === 'reset' && !confirm('Reset memory kontak ini?')) return;
-  await api(`/api/contacts/${id}/memory/${action}`, { method: 'POST', body: '{}' });
+  await guarded(() => api(`/api/contacts/${id}/memory/${action}`, { method: 'POST', body: '{}' }), 'Operasi memory selesai');
   await openContact(id);
   await loadContacts();
 }
 
 async function saveMemory(id) {
-  const memory_json = JSON.parse($('#memory-json').value);
-  await api(`/api/contacts/${id}/memory/save`, { method: 'POST', body: JSON.stringify({ memory_json }) });
+  let memory_json;
+  try {
+    memory_json = JSON.parse($('#memory-json').value);
+  } catch {
+    toast('Memory JSON tidak valid', 'error');
+    return;
+  }
+  await guarded(() => api(`/api/contacts/${id}/memory/save`, { method: 'POST', body: JSON.stringify({ memory_json }) }), 'Memory tersimpan');
   await openContact(id);
 }
 
 async function sendManual(wa_number) {
-  await api('/api/send-message', { method: 'POST', body: JSON.stringify({ wa_number, message: $('#manual-message').value }) });
+  const message = $('#manual-message').value.trim();
+  if (!message) return toast('Pesan masih kosong', 'error');
+  await guarded(() => api('/api/send-message', { method: 'POST', body: JSON.stringify({ wa_number, message }) }), 'Pesan terkirim');
   $('#manual-message').value = '';
   await openContact(state.activeContact);
 }
 
+function fieldHtml(key, label) {
+  const val = state.config[key] || '';
+  if (key.includes('list_numbers')) return `<label>${label}<textarea name="${key}" placeholder="Satu nomor per baris">${esc(val)}</textarea></label>`;
+  if (['waha_enabled', 'global_auto_reply', 'default_contact_auto_reply', 'memory_auto_generate', 'allowlist_mode'].includes(key)) {
+    return `<label>${label}<select name="${key}"><option value="true" ${val === 'true' ? 'selected' : ''}>On</option><option value="false" ${val !== 'true' ? 'selected' : ''}>Off</option></select></label>`;
+  }
+  if (key === 'memory_generate_mode') {
+    return `<label>${label}<select name="${key}"><option value="manual_only" ${val === 'manual_only' ? 'selected' : ''}>Manual only</option><option value="auto_incremental" ${val === 'auto_incremental' ? 'selected' : ''}>Auto incremental</option><option value="manual_auto" ${val === 'manual_auto' ? 'selected' : ''}>Manual + auto incremental</option></select></label>`;
+  }
+  return `<label>${label}<input name="${key}" value="${esc(val)}"></label>`;
+}
+
+function settingsGroup(title, fields) {
+  return `<fieldset><legend>${esc(title)}</legend>${fields.map(([key, label]) => fieldHtml(key, label)).join('')}</fieldset>`;
+}
+
 function renderSettings() {
-  const fields = [
-    ['waha_base_url','WAHA Base URL'], ['waha_session','WAHA Session'], ['waha_api_key','WAHA API Key'],
-    ['waha_enabled','Enable WAHA'], ['ollama_base_url','Ollama Base URL'], ['chatbot_model','Model chatbot'],
-    ['extractor_model','Model extractor'], ['merger_model','Model merger'], ['chatbot_temperature','Temperature chatbot'],
-    ['extractor_temperature','Temperature extractor'], ['merger_temperature','Temperature merger'], ['global_auto_reply','Global auto reply'],
-    ['reply_delay_seconds','Reply delay detik'], ['default_contact_auto_reply','Default kontak auto reply'],
-    ['memory_auto_generate','Memory auto generate global'], ['memory_generate_interval','Default memory interval'],
-    ['memory_generate_mode','Mode generate'], ['allowlist_mode','Allowlist mode'], ['blocklist_numbers','Blocklist nomor'], ['allowlist_numbers','Allowlist nomor']
-  ];
-  $('#settings-form').innerHTML = fields.map(([key, label]) => {
-    const val = state.config[key] || '';
-    if (key.includes('list_numbers')) return `<label>${label}<textarea name="${key}">${esc(val)}</textarea></label>`;
-    if (['waha_enabled','global_auto_reply','default_contact_auto_reply','memory_auto_generate','allowlist_mode'].includes(key)) {
-      return `<label>${label}<select name="${key}"><option value="true" ${val === 'true' ? 'selected' : ''}>On</option><option value="false" ${val !== 'true' ? 'selected' : ''}>Off</option></select></label>`;
-    }
-    if (key === 'memory_generate_mode') {
-      return `<label>${label}<select name="${key}"><option value="manual_only" ${val === 'manual_only' ? 'selected' : ''}>Manual only</option><option value="auto_incremental" ${val === 'auto_incremental' ? 'selected' : ''}>Auto incremental</option><option value="manual_auto" ${val === 'manual_auto' ? 'selected' : ''}>Manual + auto incremental</option></select></label>`;
-    }
-    return `<label>${label}<input name="${key}" value="${esc(val)}"></label>`;
-  }).join('');
+  $('#settings-form').innerHTML = [
+    settingsGroup('WAHA', [
+      ['waha_base_url', 'WAHA Base URL'], ['waha_session', 'WAHA Session'], ['waha_api_key', 'WAHA API Key'], ['waha_enabled', 'Enable WAHA'],
+    ]),
+    settingsGroup('Ollama', [
+      ['ollama_base_url', 'Ollama Base URL'], ['chatbot_model', 'Model chatbot'], ['extractor_model', 'Model extractor'], ['merger_model', 'Model merger'],
+      ['chatbot_temperature', 'Temperature chatbot'], ['extractor_temperature', 'Temperature extractor'], ['merger_temperature', 'Temperature merger'],
+    ]),
+    settingsGroup('Auto Reply', [
+      ['global_auto_reply', 'Global auto reply'], ['reply_delay_seconds', 'Reply delay detik'], ['default_contact_auto_reply', 'Default kontak auto reply'],
+      ['allowlist_mode', 'Allowlist mode'], ['blocklist_numbers', 'Blocklist nomor'], ['allowlist_numbers', 'Allowlist nomor'],
+    ]),
+    settingsGroup('Memory', [
+      ['memory_auto_generate', 'Memory auto generate global'], ['memory_generate_interval', 'Default memory interval'], ['memory_generate_mode', 'Mode generate'],
+    ]),
+  ].join('');
 }
 
 function renderPrompts() {
   const fields = [
-    ['prompt_chatbot_without_memory','Runtime prompt chatbot tanpa memory'],
-    ['prompt_chatbot_with_memory','Runtime prompt chatbot dengan memory'],
-    ['prompt_memory_extractor','Runtime prompt memory extractor'],
-    ['prompt_memory_merger','Runtime prompt memory merger'],
+    ['prompt_chatbot_without_memory', 'Runtime prompt chatbot tanpa memory'],
+    ['prompt_chatbot_with_memory', 'Runtime prompt chatbot dengan memory'],
+    ['prompt_memory_extractor', 'Runtime prompt memory extractor'],
+    ['prompt_memory_merger', 'Runtime prompt memory merger'],
   ];
   $('#prompts-form').innerHTML = fields.map(([key, label]) => `<label>${label}<textarea name="${key}">${esc(state.config[key] || '')}</textarea></label>`).join('');
 }
 
 async function saveForm(formSel, resultSel) {
   const data = Object.fromEntries(new FormData($(formSel)).entries());
-  const res = await api('/api/config', { method: 'POST', body: JSON.stringify(data) });
+  const res = await guarded(() => api('/api/config', { method: 'POST', body: JSON.stringify(data) }), 'Konfigurasi tersimpan');
   state.config = res.config;
   $(resultSel).textContent = 'Tersimpan.';
 }
 
 async function loadLogs() {
   const data = await api('/api/logs');
-  $('#logs-table').innerHTML = `<thead><tr><th>Waktu</th><th>Level</th><th>Pesan</th><th>Context</th></tr></thead><tbody>${data.logs.map(l => `<tr><td>${esc(l.created_at)}</td><td>${esc(l.level)}</td><td>${esc(l.message)}</td><td>${esc(l.context_json || '')}</td></tr>`).join('')}</tbody>`;
+  const filter = ($('#log-filter')?.value || '').toLowerCase().trim();
+  const logs = filter ? data.logs.filter(l => `${l.level} ${l.message} ${l.context_json}`.toLowerCase().includes(filter)) : data.logs;
+  $('#logs-table').innerHTML = `<thead><tr><th>Waktu</th><th>Level</th><th>Pesan</th><th>Context</th></tr></thead><tbody>${
+    logs.length ? logs.map(l => `<tr><td>${esc(l.created_at)}</td><td><span class="log-level ${esc(l.level.toLowerCase())}">${esc(l.level)}</span></td><td>${esc(l.message)}</td><td><pre>${esc(l.context_json || '')}</pre></td></tr>`).join('') : '<tr><td class="empty-state" colspan="4">Tidak ada log yang cocok.</td></tr>'
+  }</tbody>`;
 }
 
 document.querySelectorAll('.nav').forEach(btn => btn.addEventListener('click', () => show(btn.dataset.view)));
-$('#contact-search').addEventListener('input', () => loadContacts());
+$('#refresh-current').addEventListener('click', refreshCurrent);
+$('#contact-search').addEventListener('input', () => guarded(loadContacts));
+$('#add-contact').addEventListener('click', addContact);
 $('#save-settings').addEventListener('click', () => saveForm('#settings-form', '#settings-result'));
 $('#save-prompts').addEventListener('click', () => saveForm('#prompts-form', '#prompts-result'));
-$('#test-waha').addEventListener('click', async () => { $('#settings-result').textContent = JSON.stringify(await api('/api/test-waha', { method: 'POST', body: '{}' })); });
-$('#test-ollama').addEventListener('click', async () => { $('#settings-result').textContent = JSON.stringify(await api('/api/test-ollama', { method: 'POST', body: '{}' })); });
-$('#refresh-logs').addEventListener('click', loadLogs);
+$('#test-waha').addEventListener('click', () => testService('waha', '#settings-result'));
+$('#test-ollama').addEventListener('click', () => testService('ollama', '#settings-result'));
+$('#overview-test-waha').addEventListener('click', () => testService('waha', '#overview-test-result'));
+$('#overview-test-ollama').addEventListener('click', () => testService('ollama', '#overview-test-result'));
+$('#refresh-logs').addEventListener('click', () => guarded(loadLogs));
+$('#log-filter').addEventListener('input', () => guarded(loadLogs));
 
-loadConfig().then(loadOverview).catch(err => alert(err.message));
+loadConfig().then(loadOverview).catch(err => toast(err.message, 'error'));

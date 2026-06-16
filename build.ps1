@@ -63,7 +63,7 @@ if (-not (Test-Path ".env")) {
 }
 
 Write-Step 25 "Validasi docker-compose.yml"
-Run "docker" @("compose", "config")
+Run "docker" @("compose", "config", "--quiet")
 Write-Ok "Konfigurasi Compose valid."
 
 Write-Step 40 "Build image Docker" "Log layer Docker ditampilkan lengkap."

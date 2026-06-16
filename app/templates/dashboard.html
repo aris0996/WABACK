@@ -11,22 +11,58 @@
     <form method="post" action="/logout"><button class="logout">Logout</button></form>
   </aside>
   <main class="content">
+    <header class="topbar">
+      <div>
+        <strong id="page-title">Overview</strong>
+        <span id="page-subtitle">Status sistem auto reply dan memory.</span>
+      </div>
+      <button id="refresh-current" type="button" class="secondary">Refresh</button>
+    </header>
+    <div id="toast" class="toast hidden"></div>
+
     <section id="view-overview" class="view active">
-      <h2>Overview</h2>
       <div id="overview-cards" class="stats-grid"></div>
+      <div class="panel-grid">
+        <div class="panel">
+          <h3>Quick Test</h3>
+          <p class="note">Tes koneksi dari container/server ke WAHA dan Ollama.</p>
+          <div class="actions">
+            <button id="overview-test-waha" type="button">Test WAHA</button>
+            <button id="overview-test-ollama" type="button">Test Ollama</button>
+          </div>
+          <pre id="overview-test-result" class="code-box"></pre>
+        </div>
+        <div class="panel">
+          <h3>Webhook URL</h3>
+          <label>WAHA Webhook<input id="waha-webhook-url" readonly></label>
+          <label>GitHub Webhook<input id="github-webhook-url" readonly></label>
+          <p class="note">Log GitHub webhook masuk ke menu Logs dengan pesan "GitHub auto update ...".</p>
+        </div>
+      </div>
     </section>
 
     <section id="view-contacts" class="view">
       <div class="section-head">
-        <h2>Contacts</h2>
+        <div>
+          <h2>Contacts</h2>
+          <p class="note">Kontak muncul otomatis dari webhook, atau bisa ditambahkan manual untuk kirim pesan awal.</p>
+        </div>
         <input id="contact-search" placeholder="Cari nomor atau nama">
+      </div>
+      <div class="panel compact">
+        <h3>Tambah Kontak Manual</h3>
+        <div class="inline-form">
+          <input id="new-contact-number" placeholder="6281234567890">
+          <input id="new-contact-name" placeholder="Nama opsional">
+          <button id="add-contact" type="button">Tambah</button>
+        </div>
       </div>
       <div class="table-wrap"><table id="contacts-table"></table></div>
       <div id="contact-detail" class="detail-panel hidden"></div>
     </section>
 
     <section id="view-settings" class="view">
-      <h2>Settings</h2>
+      <p class="note">Simpan konfigurasi dulu, lalu gunakan tombol test. Untuk Docker di Linux, `host.docker.internal` sudah dipetakan ke host lewat compose.</p>
       <form id="settings-form" class="form-grid"></form>
       <div class="actions">
         <button id="save-settings" type="button">Simpan Konfigurasi</button>
@@ -37,7 +73,6 @@
     </section>
 
     <section id="view-prompts" class="view">
-      <h2>Prompt Editor</h2>
       <p class="note">Personality utama AI diatur melalui Ollama Modelfile. Prompt di dashboard hanya untuk konteks tambahan saat runtime.</p>
       <form id="prompts-form" class="prompt-grid"></form>
       <button id="save-prompts" type="button">Simpan Prompt</button>
@@ -46,8 +81,14 @@
 
     <section id="view-logs" class="view">
       <div class="section-head">
-        <h2>Logs</h2>
-        <button id="refresh-logs" type="button">Refresh</button>
+        <div>
+          <h2>Logs</h2>
+          <p class="note">Gunakan filter `github`, `waha`, `ollama`, atau `error` untuk mempercepat cek masalah.</p>
+        </div>
+        <div class="inline-form narrow">
+          <input id="log-filter" placeholder="Filter log">
+          <button id="refresh-logs" type="button">Refresh</button>
+        </div>
       </div>
       <div class="table-wrap"><table id="logs-table"></table></div>
     </section>

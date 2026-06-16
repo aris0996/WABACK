@@ -60,6 +60,38 @@ def contacts():
     return jsonify({"ok": True, "contacts": [_row(row) for row in rows]})
 
 
+@api_bp.post("/contacts")
+@login_required
+def create_contact():
+    data, error = require_json()
+    if error:
+        return error
+    number = normalize_wa_number(data.get("wa_number"))
+    display_name = str(data.get("display_name", "")).strip()
+    if not validate_wa_number(number):
+        return jsonify({"ok": False, "error": "Nomor WhatsApp tidak valid"}), 400
+    try:
+        cur = execute(
+            """
+            INSERT INTO contacts
+            (wa_number, display_name, auto_reply_enabled, memory_generate_interval)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                number,
+                display_name,
+                1 if get_settings().get("default_contact_auto_reply", "true") == "true" else 0,
+                int(get_settings().get("memory_generate_interval", "20") or 20),
+            ),
+        )
+        log_event("INFO", "Contact created manually", {"contact_id": cur.lastrowid, "wa_number": number})
+        return jsonify({"ok": True, "contact_id": cur.lastrowid})
+    except Exception as exc:
+        if "UNIQUE" in str(exc).upper():
+            return jsonify({"ok": False, "error": "Nomor sudah ada di kontak"}), 409
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @api_bp.get("/contacts/<int:contact_id>")
 @login_required
 def contact_detail(contact_id):

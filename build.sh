@@ -59,7 +59,7 @@ else
 fi
 
 step 25 "Validasi docker-compose.yml"
-run docker compose config
+run docker compose config --quiet
 ok "Konfigurasi Compose valid."
 
 step 40 "Build image Docker" "Log layer Docker ditampilkan lengkap."
