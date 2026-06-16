@@ -34,6 +34,28 @@ def _truth(value):
     return str(value).lower() in ("1", "true", "yes", "on")
 
 
+def _contact_related_to_allowlist(contact, number, allowlist):
+    if number in allowlist or contact["wa_number"] in allowlist:
+        return True
+    display_name = (contact["display_name"] or "").strip()
+    if not display_name or not allowlist:
+        return False
+    placeholders = ",".join("?" for _ in allowlist)
+    row = query_one(
+        f"""
+        SELECT id
+        FROM contacts
+        WHERE display_name = ?
+          AND wa_number IN ({placeholders})
+          AND auto_reply_enabled = 1
+          AND ai_blocked = 0
+        LIMIT 1
+        """,
+        (display_name, *allowlist),
+    )
+    return bool(row)
+
+
 @api_bp.get("/config")
 @login_required
 def get_config():
@@ -270,20 +292,22 @@ def contact_reply_debug(contact_id):
     number = contact["wa_number"]
     blocklist = {normalize_wa_number(item.strip()) for item in settings.get("blocklist_numbers", "").splitlines() if item.strip()}
     allowlist = {normalize_wa_number(item.strip()) for item in settings.get("allowlist_numbers", "").splitlines() if item.strip()}
+    related_allowlist = _contact_related_to_allowlist(contact, number, allowlist)
+    auto_reply_ok = bool(contact["auto_reply_enabled"]) or related_allowlist
     checks = {
         "waha_enabled": settings.get("waha_enabled", "true") == "true",
         "global_auto_reply": settings.get("global_auto_reply", "true") == "true",
-        "contact_auto_reply": bool(contact["auto_reply_enabled"]),
+        "contact_auto_reply": auto_reply_ok,
         "contact_ai_allowed": not bool(contact["ai_blocked"]),
         "not_in_blocklist": number not in blocklist,
-        "allowlist_ok": settings.get("allowlist_mode", "false") != "true" or number in allowlist or bool(contact["auto_reply_enabled"]),
+        "allowlist_ok": settings.get("allowlist_mode", "false") != "true" or related_allowlist or bool(contact["auto_reply_enabled"]),
     }
     return jsonify(
         {
             "ok": True,
             "checks": checks,
             "can_reply": all(checks.values()),
-            "note": "Jika allowlist mode aktif, kontak dengan Auto Reply On tetap dianggap diizinkan.",
+            "note": "Jika WAHA memakai LID, kontak dianggap cocok bila nomor ini Auto Reply On atau ada kontak bernama sama yang masuk allowlist dan Auto Reply On.",
         }
     )
 

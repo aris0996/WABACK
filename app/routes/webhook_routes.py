@@ -20,6 +20,28 @@ def _list_setting(key):
     return {normalize_wa_number(item.strip()) for item in get_setting(key, "").splitlines() if item.strip()}
 
 
+def _contact_related_to_allowlist(contact, wa_number, allowlist):
+    if wa_number in allowlist or contact["wa_number"] in allowlist:
+        return True
+    display_name = (contact["display_name"] or "").strip()
+    if not display_name or not allowlist:
+        return False
+    placeholders = ",".join("?" for _ in allowlist)
+    row = query_one(
+        f"""
+        SELECT id
+        FROM contacts
+        WHERE display_name = ?
+          AND wa_number IN ({placeholders})
+          AND auto_reply_enabled = 1
+          AND ai_blocked = 0
+        LIMIT 1
+        """,
+        (display_name, *allowlist),
+    )
+    return bool(row)
+
+
 def _extract_message(payload):
     data = payload.get("payload", payload)
     event = payload.get("event") or payload.get("type") or ""
@@ -121,7 +143,24 @@ def _get_or_create_contact(wa_number, display_name):
         return query_one("SELECT * FROM contacts WHERE id = ?", (contact["id"],))
     allowlist = _list_setting("allowlist_numbers")
     allowlist_mode = get_setting("allowlist_mode", "false") == "true"
-    if allowlist_mode and wa_number not in allowlist:
+    related_allowed = False
+    if allowlist_mode and display_name and allowlist:
+        placeholders = ",".join("?" for _ in allowlist)
+        related_allowed = bool(
+            query_one(
+                f"""
+                SELECT id
+                FROM contacts
+                WHERE display_name = ?
+                  AND wa_number IN ({placeholders})
+                  AND auto_reply_enabled = 1
+                  AND ai_blocked = 0
+                LIMIT 1
+                """,
+                (display_name, *allowlist),
+            )
+        )
+    if allowlist_mode and wa_number not in allowlist and not related_allowed:
         default_auto = 0
     else:
         default_auto = 1 if _truth(get_setting("default_contact_auto_reply", "true")) else 0
@@ -142,15 +181,17 @@ def _can_reply(contact, wa_number):
         return False, "waha_disabled"
     if get_setting("global_auto_reply", "true") != "true":
         return False, "global_auto_reply_off"
-    if contact["ai_blocked"] or not contact["auto_reply_enabled"]:
-        return False, "contact_ai_blocked_or_auto_reply_off"
+    if contact["ai_blocked"]:
+        return False, "contact_ai_blocked"
     if wa_number in _list_setting("blocklist_numbers"):
         return False, "number_in_blocklist"
-    if (
-        get_setting("allowlist_mode", "false") == "true"
-        and wa_number not in _list_setting("allowlist_numbers")
-        and not contact["auto_reply_enabled"]
-    ):
+    allowlist_mode = get_setting("allowlist_mode", "false") == "true"
+    allowlist = _list_setting("allowlist_numbers")
+    related_allowed = _contact_related_to_allowlist(contact, wa_number, allowlist)
+    contact_auto_ok = bool(contact["auto_reply_enabled"]) or related_allowed
+    if not contact_auto_ok:
+        return False, "contact_auto_reply_off"
+    if allowlist_mode and not related_allowed and not bool(contact["auto_reply_enabled"]):
         return False, "allowlist_mode_number_not_allowed"
     return True, "allowed"
 
