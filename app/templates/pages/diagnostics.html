@@ -1,0 +1,24 @@
+{% extends "app_layout.html" %}
+{% block content %}
+<section id="view-diagnostics" class="view active">
+  <div class="panel-grid">
+    <div class="panel">
+      <h3>Service Connection</h3>
+      <p class="note">Gunakan ini untuk memastikan container bisa menjangkau WAHA dan Ollama.</p>
+      <div class="actions">
+        <button id="diag-test-waha" type="button">Test WAHA</button>
+        <button id="diag-test-ollama" type="button">Test Ollama</button>
+      </div>
+      <pre id="diag-service-result" class="code-box"></pre>
+    </div>
+    <div class="panel">
+      <h3>Git Auto Update</h3>
+      <p class="note">Working tree harus bersih agar webhook GitHub bisa pull otomatis tanpa konflik.</p>
+      <div class="actions">
+        <button id="diag-update-status" type="button">Cek Status Git</button>
+      </div>
+      <pre id="diag-update-result" class="code-box"></pre>
+    </div>
+  </div>
+</section>
+{% endblock %}

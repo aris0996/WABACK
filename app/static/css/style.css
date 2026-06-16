@@ -32,6 +32,7 @@ code { background: #eef2f6; padding: 2px 5px; border-radius: 4px; }
 .sidebar { background: #102019; color: white; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
 .sidebar h1 { font-size: 20px; margin: 0 0 16px; }
 .nav, .logout { width: 100%; text-align: left; background: transparent; border: 1px solid transparent; }
+.nav { display: block; color: white; text-decoration: none; border-radius: 6px; padding: 9px 12px; }
 .nav.active, .nav:hover, .logout:hover { background: rgba(255,255,255,.12); }
 .logout { margin-top: 20px; }
 .content { padding: 24px; min-width: 0; }

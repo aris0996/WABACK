@@ -1,0 +1,9 @@
+{% extends "app_layout.html" %}
+{% block content %}
+<section id="view-prompts" class="view active">
+  <p class="note">Personality utama AI diatur melalui Ollama Modelfile. Prompt di dashboard hanya untuk konteks tambahan saat runtime.</p>
+  <form id="prompts-form" class="prompt-grid"></form>
+  <button id="save-prompts" type="button">Simpan Prompt</button>
+  <div id="prompts-result" class="result"></div>
+</section>
+{% endblock %}

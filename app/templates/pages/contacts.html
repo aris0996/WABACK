@@ -1,0 +1,22 @@
+{% extends "app_layout.html" %}
+{% block content %}
+<section id="view-contacts" class="view active">
+  <div class="section-head">
+    <div>
+      <h2>Contacts</h2>
+      <p class="note">Kontak muncul otomatis dari webhook, atau bisa ditambahkan manual untuk kirim pesan awal.</p>
+    </div>
+    <input id="contact-search" placeholder="Cari nomor atau nama">
+  </div>
+  <div class="panel compact">
+    <h3>Tambah Kontak Manual</h3>
+    <div class="inline-form">
+      <input id="new-contact-number" placeholder="6281234567890">
+      <input id="new-contact-name" placeholder="Nama opsional">
+      <button id="add-contact" type="button">Tambah</button>
+    </div>
+  </div>
+  <div class="table-wrap"><table id="contacts-table"></table></div>
+  <div id="contact-detail" class="detail-panel hidden"></div>
+</section>
+{% endblock %}

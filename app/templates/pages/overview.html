@@ -1,0 +1,23 @@
+{% extends "app_layout.html" %}
+{% block content %}
+<section id="view-overview" class="view active">
+  <div id="overview-cards" class="stats-grid"></div>
+  <div class="panel-grid">
+    <div class="panel">
+      <h3>Quick Test</h3>
+      <p class="note">Tes koneksi dari container/server ke WAHA dan Ollama.</p>
+      <div class="actions">
+        <button id="overview-test-waha" type="button">Test WAHA</button>
+        <button id="overview-test-ollama" type="button">Test Ollama</button>
+      </div>
+      <pre id="overview-test-result" class="code-box"></pre>
+    </div>
+    <div class="panel">
+      <h3>Webhook URL</h3>
+      <label>WAHA Webhook<input id="waha-webhook-url" readonly></label>
+      <label>GitHub Webhook<input id="github-webhook-url" readonly></label>
+      <p class="note">Log GitHub webhook masuk ke menu Logs dengan pesan "GitHub auto update ...".</p>
+    </div>
+  </div>
+</section>
+{% endblock %}

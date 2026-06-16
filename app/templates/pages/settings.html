@@ -1,0 +1,13 @@
+{% extends "app_layout.html" %}
+{% block content %}
+<section id="view-settings" class="view active">
+  <p class="note">Simpan konfigurasi dulu, lalu gunakan tombol test. Untuk Docker di Linux, `host.docker.internal` sudah dipetakan ke host lewat compose.</p>
+  <form id="settings-form" class="form-grid"></form>
+  <div class="actions">
+    <button id="save-settings" type="button">Simpan Konfigurasi</button>
+    <button id="test-waha" type="button">Test WAHA</button>
+    <button id="test-ollama" type="button">Test Ollama</button>
+  </div>
+  <div id="settings-result" class="result"></div>
+</section>
+{% endblock %}

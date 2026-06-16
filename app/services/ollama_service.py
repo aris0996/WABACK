@@ -3,6 +3,7 @@ import json
 import requests
 
 from ..db import get_setting
+from .network_service import tcp_probe
 
 
 def _base_url():
@@ -38,6 +39,10 @@ def generate_json(model, prompt, temperature="0.1"):
 
 
 def test_connection():
-    response = requests.get(f"{_base_url()}/api/tags", timeout=10)
+    base = _base_url()
+    probe = tcp_probe(base)
+    if not probe["ok"]:
+        raise RuntimeError({"probe": probe, "url": f"{base}/api/tags"})
+    response = requests.get(f"{base}/api/tags", timeout=10)
     response.raise_for_status()
-    return response.json()
+    return {"url": f"{base}/api/tags", "probe": probe, "result": response.json()}

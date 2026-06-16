@@ -1,4 +1,7 @@
 import subprocess
+import os
+import threading
+import time
 from pathlib import Path
 
 from flask import current_app
@@ -33,13 +36,38 @@ def _ensure_success(result):
 
 
 def get_git_status():
+    repo_path = Path(_repo_root())
+    git_dir = repo_path / ".git"
+    if not git_dir.exists():
+        return {
+            "clean": False,
+            "branch": "",
+            "repo_root": str(repo_path),
+            "git_available": False,
+            "status": {
+                "command": "git status --porcelain",
+                "returncode": 128,
+                "output": ".git directory not found. Mount or run the app from a git clone.",
+            },
+        }
     status = _run(["git", "status", "--porcelain"])
     branch = _run(["git", "branch", "--show-current"])
     return {
         "clean": status["returncode"] == 0 and not status["output"],
         "branch": branch["output"] if branch["returncode"] == 0 else "",
+        "repo_root": str(repo_path),
+        "git_available": True,
         "status": status,
     }
+
+
+def schedule_worker_restart(delay_seconds=2):
+    def _restart():
+        time.sleep(delay_seconds)
+        os._exit(0)
+
+    thread = threading.Thread(target=_restart, daemon=True)
+    thread.start()
 
 
 def auto_update():
@@ -81,6 +109,10 @@ def auto_update():
         "updated": before["output"] != after["output"],
         "pull_output": pull["output"],
         "deploy_output": deploy_result["output"] if deploy_result else "",
+        "worker_restart_scheduled": False,
     }
+    if result["updated"] and current_app.config["AUTO_UPDATE_RESTART_WORKER"] and not deploy_command:
+        schedule_worker_restart()
+        result["worker_restart_scheduled"] = True
     log_event("INFO", "GitHub auto update completed", result)
     return result

@@ -167,6 +167,23 @@ AUTO_UPDATE_COMMAND=docker compose up -d --build
 
 Catatan Docker: endpoint auto update membutuhkan folder kerja yang memiliki `.git` dan binary `git`. Jika aplikasi berjalan di container hasil `COPY . .`, `.git` biasanya tidak ikut masuk image. Untuk auto update paling sederhana, jalankan aplikasi di host repository, atau panggil endpoint update dari service host yang punya akses ke Git dan Docker.
 
+Pada konfigurasi Docker terbaru, `docker-compose.yml` sudah melakukan bind mount:
+
+```yaml
+volumes:
+  - ./:/app
+```
+
+Artinya folder repo host, termasuk `.git`, terlihat dari container. Setelah `git pull --ff-only` sukses, worker Gunicorn dijadwalkan restart ringan agar kode baru terbaca. Default worker dibuat `1` di `start.sh` supaya tidak ada worker lama yang masih memakai kode lama.
+
+Setelah pull update ini, jalankan sekali:
+
+```bash
+docker compose up -d --build
+```
+
+Sesudah itu push berikutnya dari GitHub bisa memanggil `/webhook/github` dan aplikasi akan melakukan pull sendiri selama working tree bersih.
+
 ## Memory Manual
 
 Buka Contacts, pilih Detail kontak, lalu gunakan:
@@ -233,6 +250,7 @@ Urutan pengecekan webhook:
 - Pastikan Ollama berjalan: `ollama list`.
 - Dari Docker, gunakan `http://host.docker.internal:11434`.
 - Di Linux, `docker-compose.yml` sudah menambahkan `host.docker.internal:host-gateway`. Jalankan ulang `docker compose up -d --build` setelah pull update.
+- Jika masih timeout, pastikan Ollama listen ke host network, bukan hanya `127.0.0.1` yang tidak bisa diakses container. Coba set environment Ollama host ke `0.0.0.0:11434`.
 - Pastikan model sudah dibuat dengan `ollama create`.
 
 ### WAHA tidak konek
@@ -240,6 +258,7 @@ Urutan pengecekan webhook:
 - Cek WAHA Base URL dan API key.
 - Klik Test WAHA di dashboard.
 - Pastikan session WAHA aktif.
+- Jika timeout ke `IP:3000`, cek firewall/security group dan pastikan WAHA listen di `0.0.0.0:3000`, bukan hanya localhost.
 
 ### AI tidak membalas
 

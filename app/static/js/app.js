@@ -1,16 +1,9 @@
-const state = { config: {}, contacts: [], activeContact: null, view: 'overview' };
+const pageRoot = document.querySelector('.app-shell');
+const state = { config: {}, contacts: [], activeContact: null, view: pageRoot?.dataset.page || 'overview' };
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pretty = (value) => JSON.stringify(value, null, 2);
-
-const pages = {
-  overview: ['Overview', 'Status sistem auto reply dan memory.'],
-  contacts: ['Contacts', 'Kelola nomor, auto reply, block AI, chat, dan memory.'],
-  settings: ['Settings', 'Konfigurasi WAHA, Ollama, auto reply, allowlist, dan memory.'],
-  prompts: ['Prompt Editor', 'Prompt runtime tambahan. Personality utama tetap dari Modelfile.'],
-  logs: ['Logs', 'Riwayat event sistem, error koneksi, webhook, dan auto update.'],
-};
 
 function toast(message, type = 'ok') {
   const box = $('#toast');
@@ -40,24 +33,11 @@ async function guarded(action, successMessage = '') {
   }
 }
 
-function setPage(view) {
-  state.view = view;
-  const [title, subtitle] = pages[view];
-  $('#page-title').textContent = title;
-  $('#page-subtitle').textContent = subtitle;
-  document.querySelectorAll('.nav').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${view}`));
-}
-
-function show(view) {
-  setPage(view);
-  refreshCurrent();
-}
-
 async function refreshCurrent() {
   if (state.view === 'overview') await guarded(loadOverview);
   if (state.view === 'contacts') await guarded(loadContacts);
   if (state.view === 'settings') renderSettings();
+  if (state.view === 'diagnostics') await guarded(loadDiagnostics);
   if (state.view === 'prompts') renderPrompts();
   if (state.view === 'logs') await guarded(loadLogs);
 }
@@ -65,8 +45,8 @@ async function refreshCurrent() {
 async function loadConfig() {
   const data = await api('/api/config');
   state.config = data.config;
-  renderSettings();
-  renderPrompts();
+  if (state.view === 'settings') renderSettings();
+  if (state.view === 'prompts') renderPrompts();
 }
 
 function statusValue(value) {
@@ -309,17 +289,31 @@ async function loadLogs() {
   }</tbody>`;
 }
 
-document.querySelectorAll('.nav').forEach(btn => btn.addEventListener('click', () => show(btn.dataset.view)));
-$('#refresh-current').addEventListener('click', refreshCurrent);
-$('#contact-search').addEventListener('input', () => guarded(loadContacts));
-$('#add-contact').addEventListener('click', addContact);
-$('#save-settings').addEventListener('click', () => saveForm('#settings-form', '#settings-result'));
-$('#save-prompts').addEventListener('click', () => saveForm('#prompts-form', '#prompts-result'));
-$('#test-waha').addEventListener('click', () => testService('waha', '#settings-result'));
-$('#test-ollama').addEventListener('click', () => testService('ollama', '#settings-result'));
-$('#overview-test-waha').addEventListener('click', () => testService('waha', '#overview-test-result'));
-$('#overview-test-ollama').addEventListener('click', () => testService('ollama', '#overview-test-result'));
-$('#refresh-logs').addEventListener('click', () => guarded(loadLogs));
-$('#log-filter').addEventListener('input', () => guarded(loadLogs));
+async function loadDiagnostics() {
+  const target = $('#diag-update-result');
+  if (!target) return;
+  const data = await api('/api/update-status');
+  target.textContent = pretty(data.status);
+}
 
-loadConfig().then(loadOverview).catch(err => toast(err.message, 'error'));
+function on(selector, event, handler) {
+  const el = $(selector);
+  if (el) el.addEventListener(event, handler);
+}
+
+on('#refresh-current', 'click', () => guarded(refreshCurrent));
+on('#contact-search', 'input', () => guarded(loadContacts));
+on('#add-contact', 'click', addContact);
+on('#save-settings', 'click', () => saveForm('#settings-form', '#settings-result'));
+on('#save-prompts', 'click', () => saveForm('#prompts-form', '#prompts-result'));
+on('#test-waha', 'click', () => testService('waha', '#settings-result'));
+on('#test-ollama', 'click', () => testService('ollama', '#settings-result'));
+on('#overview-test-waha', 'click', () => testService('waha', '#overview-test-result'));
+on('#overview-test-ollama', 'click', () => testService('ollama', '#overview-test-result'));
+on('#diag-test-waha', 'click', () => testService('waha', '#diag-service-result'));
+on('#diag-test-ollama', 'click', () => testService('ollama', '#diag-service-result'));
+on('#diag-update-status', 'click', () => guarded(loadDiagnostics, 'Status Git diperbarui'));
+on('#refresh-logs', 'click', () => guarded(loadLogs));
+on('#log-filter', 'input', () => guarded(loadLogs));
+
+loadConfig().then(refreshCurrent).catch(err => toast(err.message, 'error'));

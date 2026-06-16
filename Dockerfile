@@ -16,4 +16,4 @@ COPY . .
 RUN chmod +x /app/start.sh
 
 EXPOSE 5000
-CMD ["/app/start.sh"]
+CMD ["sh", "/app/start.sh"]

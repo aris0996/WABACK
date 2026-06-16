@@ -9,5 +9,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      - ./:/app
       - ./data:/app/data
     restart: unless-stopped

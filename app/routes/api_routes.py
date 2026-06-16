@@ -7,6 +7,7 @@ from ..models import normalize_memory
 from ..security import login_required, require_json, normalize_wa_number, validate_wa_number
 from ..services import memory_service, ollama_service, waha_service
 from ..services.log_service import log_event
+from ..services.update_service import get_git_status
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -266,3 +267,12 @@ def overview():
     }
     cfg = get_settings()
     return jsonify({"ok": True, "stats": stats, "config": cfg})
+
+
+@api_bp.get("/update-status")
+@login_required
+def update_status():
+    try:
+        return jsonify({"ok": True, "status": get_git_status()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400

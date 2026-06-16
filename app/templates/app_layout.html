@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block body %}
+<div class="app-shell" data-page="{{ page }}">
+  <aside class="sidebar">
+    <h1>WA AI Memory</h1>
+    <a class="nav {% if page == 'overview' %}active{% endif %}" href="{{ url_for('dashboard.index') }}">Overview</a>
+    <a class="nav {% if page == 'contacts' %}active{% endif %}" href="{{ url_for('dashboard.contacts_page') }}">Contacts</a>
+    <a class="nav {% if page == 'settings' %}active{% endif %}" href="{{ url_for('dashboard.settings_page') }}">Settings</a>
+    <a class="nav {% if page == 'diagnostics' %}active{% endif %}" href="{{ url_for('dashboard.diagnostics_page') }}">Diagnostics</a>
+    <a class="nav {% if page == 'prompts' %}active{% endif %}" href="{{ url_for('dashboard.prompts_page') }}">Prompt Editor</a>
+    <a class="nav {% if page == 'logs' %}active{% endif %}" href="{{ url_for('dashboard.logs_page') }}">Logs</a>
+    <form method="post" action="/logout"><button class="logout">Logout</button></form>
+  </aside>
+  <main class="content">
+    <header class="topbar">
+      <div>
+        <strong>{{ title }}</strong>
+        <span>{{ subtitle }}</span>
+      </div>
+      <button id="refresh-current" type="button" class="secondary">Refresh</button>
+    </header>
+    <div id="toast" class="toast hidden"></div>
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

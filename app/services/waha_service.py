@@ -1,6 +1,7 @@
 import requests
 
 from ..db import get_setting
+from .network_service import tcp_probe
 
 
 def _headers():
@@ -29,6 +30,9 @@ def send_message(wa_number, text):
 
 
 def test_connection():
+    probe = tcp_probe(_base_url())
+    if not probe["ok"]:
+        raise RuntimeError({"probe": probe, "base_url": _base_url()})
     errors = []
     for path in ("/api/sessions", "/api/server/status"):
         url = f"{_base_url()}{path}"
