@@ -12,7 +12,7 @@ def index():
         "pages/overview.html",
         page="overview",
         title="Overview",
-        subtitle="Status sistem auto reply dan memory.",
+        subtitle="Status sistem auto reply WhatsApp.",
     )
 
 
@@ -22,8 +22,8 @@ def contacts_page():
     return render_template(
         "pages/contacts.html",
         page="contacts",
-        title="Contacts",
-        subtitle="Kelola nomor, auto reply, block AI, chat, dan memory.",
+        title="Chats",
+        subtitle="Kelola direct chat, grup, trigger keyword, dan auto reply.",
     )
 
 
@@ -34,7 +34,7 @@ def settings_page():
         "pages/settings.html",
         page="settings",
         title="Settings",
-        subtitle="Konfigurasi WAHA, Ollama, auto reply, allowlist, dan memory.",
+        subtitle="Konfigurasi WAHA, Ollama, auto reply, dan trigger grup.",
     )
 
 
@@ -78,5 +78,5 @@ def ai_logs_page():
         "pages/ai_logs.html",
         page="ai_logs",
         title="AI Logs",
-        subtitle="Jejak webhook, parsing pesan, auto reply, Ollama, WAHA send, dan memory job.",
+        subtitle="Jejak webhook, parsing pesan, auto reply, Ollama, dan WAHA send.",
     )

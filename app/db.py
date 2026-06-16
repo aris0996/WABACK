@@ -84,9 +84,37 @@ def set_setting(key, value):
 
 
 def _run_migrations(db):
+    db.execute("DROP TABLE IF EXISTS memory_jobs")
+    db.execute("DROP TABLE IF EXISTS memory_candidates")
+    db.execute("DROP TABLE IF EXISTS memories")
+    contact_columns = [row["name"] for row in db.execute("PRAGMA table_info(contacts)").fetchall()]
+    if "chat_id" not in contact_columns:
+        db.execute("ALTER TABLE contacts ADD COLUMN chat_id TEXT")
+    if "chat_type" not in contact_columns:
+        db.execute("ALTER TABLE contacts ADD COLUMN chat_type TEXT NOT NULL DEFAULT 'direct'")
+    if "trigger_keywords" not in contact_columns:
+        db.execute("ALTER TABLE contacts ADD COLUMN trigger_keywords TEXT NOT NULL DEFAULT ''")
+    db.execute(
+        """
+        UPDATE contacts
+        SET chat_id = CASE
+            WHEN wa_number LIKE '%@%' THEN wa_number
+            ELSE wa_number || '@c.us'
+        END,
+        chat_type = CASE
+            WHEN wa_number LIKE '%@g.us' THEN 'group'
+            ELSE 'direct'
+        END
+        WHERE chat_id IS NULL OR chat_id = ''
+        """
+    )
     columns = [row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()]
     if "external_id" not in columns:
         db.execute("ALTER TABLE messages ADD COLUMN external_id TEXT")
+    if "sender_id" not in columns:
+        db.execute("ALTER TABLE messages ADD COLUMN sender_id TEXT")
+    if "sender_name" not in columns:
+        db.execute("ALTER TABLE messages ADD COLUMN sender_name TEXT")
     db.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_contact_external
@@ -95,12 +123,8 @@ def _run_migrations(db):
         """
     )
     db.execute("CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id)")
-    db.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_memory_jobs_contact_status
-        ON memory_jobs(contact_id, status)
-        """
-    )
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_chat_id ON contacts(chat_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_contacts_chat_type ON contacts(chat_type)")
 
 
 def get_settings():
@@ -112,9 +136,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS contacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     wa_number TEXT NOT NULL UNIQUE,
+    chat_id TEXT UNIQUE,
+    chat_type TEXT NOT NULL DEFAULT 'direct',
     display_name TEXT,
     auto_reply_enabled INTEGER NOT NULL DEFAULT 1,
     ai_blocked INTEGER NOT NULL DEFAULT 0,
+    trigger_keywords TEXT NOT NULL DEFAULT '',
     last_memory_message_id INTEGER NOT NULL DEFAULT 0,
     new_message_count_since_memory INTEGER NOT NULL DEFAULT 0,
     memory_auto_generate_enabled INTEGER NOT NULL DEFAULT 1,
@@ -130,29 +157,10 @@ CREATE TABLE IF NOT EXISTS messages (
     message TEXT NOT NULL,
     raw_payload TEXT,
     external_id TEXT,
+    sender_id TEXT,
+    sender_name TEXT,
     used_for_memory INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS memory_candidates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id INTEGER NOT NULL,
-    source_mode TEXT NOT NULL,
-    from_message_id INTEGER NOT NULL DEFAULT 0,
-    to_message_id INTEGER NOT NULL DEFAULT 0,
-    memory_json TEXT NOT NULL,
-    confidence REAL NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS memories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id INTEGER NOT NULL UNIQUE,
-    memory_json TEXT NOT NULL,
-    source TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
 );
 
@@ -169,30 +177,11 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS memory_jobs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id INTEGER NOT NULL,
-    job_type TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'queued',
-    stage TEXT NOT NULL DEFAULT 'Queued',
-    progress INTEGER NOT NULL DEFAULT 0,
-    total INTEGER NOT NULL DEFAULT 0,
-    result_json TEXT,
-    error TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    finished_at TEXT,
-    FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
-);
-
 CREATE INDEX IF NOT EXISTS idx_contacts_wa_number ON contacts(wa_number);
 CREATE INDEX IF NOT EXISTS idx_contacts_updated_at ON contacts(updated_at);
 CREATE INDEX IF NOT EXISTS idx_messages_contact_id_id ON messages(contact_id, id);
 CREATE INDEX IF NOT EXISTS idx_messages_contact_id_created_at ON messages(contact_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_used_for_memory ON messages(used_for_memory);
-CREATE INDEX IF NOT EXISTS idx_memories_contact_id ON memories(contact_id);
-CREATE INDEX IF NOT EXISTS idx_memory_candidates_contact_id ON memory_candidates(contact_id);
 CREATE INDEX IF NOT EXISTS idx_system_logs_level_created_at ON system_logs(level, created_at);
 CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at);
-CREATE INDEX IF NOT EXISTS idx_memory_jobs_contact_status ON memory_jobs(contact_id, status);
 """

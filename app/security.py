@@ -8,6 +8,7 @@ from flask import jsonify, redirect, request, session, url_for
 WA_NUMBER_RE = re.compile(r"^\+?[0-9]{7,20}$")
 WA_SUFFIX_RE = re.compile(r"@(c\.us|s\.whatsapp\.net|lid)$")
 NUMBER_LIST_SPLIT_RE = re.compile(r"[\s,;]+")
+SUPPORTED_CHAT_SUFFIXES = ("@c.us", "@s.whatsapp.net", "@lid", "@g.us")
 _webhook_hits = {}
 
 
@@ -32,6 +33,37 @@ def validate_wa_number(number):
 
 def normalize_wa_number(number):
     return WA_SUFFIX_RE.sub("", str(number or "").strip())
+
+
+def normalize_chat_id(value):
+    text = str(value or "").strip()
+    if not text or text == "status@broadcast" or "@newsletter" in text or "@broadcast" in text:
+        return ""
+    if "@g.us" in text:
+        return text
+    if any(suffix in text for suffix in ("@c.us", "@s.whatsapp.net", "@lid")):
+        return text
+    number = normalize_wa_number(text)
+    if validate_wa_number(number):
+        return f"{number}@c.us"
+    return ""
+
+
+def chat_key(value):
+    chat_id = normalize_chat_id(value)
+    if not chat_id:
+        return normalize_wa_number(value)
+    if chat_id.endswith("@g.us"):
+        return chat_id
+    return normalize_wa_number(chat_id)
+
+
+def chat_type(value):
+    return "group" if str(normalize_chat_id(value)).endswith("@g.us") else "direct"
+
+
+def validate_chat_id(value):
+    return bool(normalize_chat_id(value))
 
 
 def parse_wa_number_list(value):

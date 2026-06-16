@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from ..db import execute, get_db, get_setting, query_one
-from ..security import normalize_wa_number, validate_wa_number
+from ..security import chat_key, chat_type, normalize_chat_id, validate_chat_id
 from .network_service import tcp_probe
 
 
@@ -23,7 +23,10 @@ def _base_url():
 
 def send_message(wa_number, text, chat_id=None):
     session = get_setting("waha_session", "default")
-    payload = {"session": session, "chatId": chat_id or f"{wa_number}@c.us", "text": text}
+    target_chat_id = normalize_chat_id(chat_id or wa_number)
+    if not target_chat_id:
+        raise ValueError("Chat ID WhatsApp tidak valid")
+    payload = {"session": session, "chatId": target_chat_id, "text": text}
     response = requests.post(
         f"{_base_url()}/api/sendText",
         json=payload,
@@ -51,11 +54,11 @@ def test_connection():
     raise RuntimeError(errors)
 
 
-def _extract_chat_number(chat):
+def _extract_chat_id(chat):
     for value in _candidate_chat_ids(chat):
-        number = _normalize_chat_id_value(value)
-        if validate_wa_number(number):
-            return number
+        found_chat_id = _normalize_chat_id_value(value)
+        if validate_chat_id(found_chat_id):
+            return found_chat_id
     return ""
 
 
@@ -102,17 +105,13 @@ def _normalize_chat_id_value(value):
     if isinstance(value, dict):
         for candidate in _candidate_chat_ids(value):
             normalized = _normalize_chat_id_value(candidate)
-            if validate_wa_number(normalized):
+            if validate_chat_id(normalized):
                 return normalized
         return ""
     text = str(value or "").strip()
-    if not text or text == "status@broadcast" or "@g.us" in text:
+    if not text or text == "status@broadcast" or "@newsletter" in text:
         return ""
-    if "@c.us" in text or "@s.whatsapp.net" in text:
-        return normalize_wa_number(text)
-    if text.isdigit() or (text.startswith("+") and text[1:].isdigit()):
-        return normalize_wa_number(text)
-    return ""
+    return normalize_chat_id(text)
 
 
 def _extract_chat_name(chat):
@@ -151,7 +150,7 @@ def _sync_contact_items(items):
     inserted = 0
     updated = 0
     skipped = 0
-    skipped_reasons = {"invalid_number": 0, "non_object": 0}
+    skipped_reasons = {"invalid_chat": 0, "non_object": 0}
     sample_keys = []
     db = get_db()
     for chat in items:
@@ -161,34 +160,41 @@ def _sync_contact_items(items):
             continue
         if len(sample_keys) < 5:
             sample_keys.append(sorted(chat.keys()))
-        number = _extract_chat_number(chat)
-        if not validate_wa_number(number):
+        found_chat_id = _extract_chat_id(chat)
+        if not validate_chat_id(found_chat_id):
             skipped += 1
-            skipped_reasons["invalid_number"] += 1
+            skipped_reasons["invalid_chat"] += 1
             continue
+        key = chat_key(found_chat_id)
+        kind = chat_type(found_chat_id)
         name = _extract_chat_name(chat)
-        existing = query_one("SELECT id, display_name FROM contacts WHERE wa_number = ?", (number,))
+        existing = query_one("SELECT id, display_name FROM contacts WHERE chat_id = ? OR wa_number = ?", (found_chat_id, key))
         if existing:
             if name and name != existing["display_name"]:
                 db.execute(
-                    "UPDATE contacts SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (name, existing["id"]),
+                    "UPDATE contacts SET display_name = ?, chat_id = ?, chat_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (name, found_chat_id, kind, existing["id"]),
                 )
                 updated += 1
             else:
+                db.execute(
+                    "UPDATE contacts SET chat_id = ?, chat_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (found_chat_id, kind, existing["id"]),
+                )
                 skipped += 1
         else:
             db.execute(
                 """
                 INSERT INTO contacts
-                (wa_number, display_name, auto_reply_enabled, memory_generate_interval)
-                VALUES (?, ?, ?, ?)
+                (wa_number, chat_id, chat_type, display_name, auto_reply_enabled)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
-                    number,
+                    key,
+                    found_chat_id,
+                    kind,
                     name,
-                    1 if get_setting("default_contact_auto_reply", "true") == "true" else 0,
-                    int(get_setting("memory_generate_interval", "20") or 20),
+                    0 if kind == "group" else 1 if get_setting("default_contact_auto_reply", "true") == "true" else 0,
                 ),
             )
             inserted += 1
@@ -212,7 +218,7 @@ def sync_contacts_from_waha(limit=200, max_total=2000):
         "inserted": 0,
         "updated": 0,
         "skipped": 0,
-        "skipped_reasons": {"invalid_number": 0, "non_object": 0},
+        "skipped_reasons": {"invalid_chat": 0, "non_object": 0},
         "sample_keys": [],
     }
     while offset < max_total:
@@ -225,7 +231,7 @@ def sync_contacts_from_waha(limit=200, max_total=2000):
         totals["inserted"] += result["inserted"]
         totals["updated"] += result["updated"]
         totals["skipped"] += result["skipped"]
-        totals["skipped_reasons"]["invalid_number"] += result["skipped_reasons"]["invalid_number"]
+        totals["skipped_reasons"]["invalid_chat"] += result["skipped_reasons"]["invalid_chat"]
         totals["skipped_reasons"]["non_object"] += result["skipped_reasons"]["non_object"]
         for keys in result["sample_keys"]:
             if len(totals["sample_keys"]) < 5:
@@ -268,6 +274,34 @@ def _message_external_id(item):
     return str(value or "")
 
 
+def _message_sender_id(item):
+    if not isinstance(item, dict):
+        return ""
+    raw_data = item.get("_data") if isinstance(item.get("_data"), dict) else {}
+    return str(
+        item.get("participant")
+        or item.get("author")
+        or item.get("from")
+        or raw_data.get("participant")
+        or raw_data.get("author")
+        or ""
+    )
+
+
+def _message_sender_name(item):
+    if not isinstance(item, dict):
+        return ""
+    raw_data = item.get("_data") if isinstance(item.get("_data"), dict) else {}
+    return str(
+        item.get("pushName")
+        or item.get("notifyName")
+        or item.get("senderName")
+        or raw_data.get("notifyName")
+        or raw_data.get("pushName")
+        or ""
+    )
+
+
 def _message_created_at(item):
     ts = item.get("timestamp") if isinstance(item, dict) else None
     try:
@@ -307,11 +341,11 @@ def _message_direction(item):
     return "in"
 
 
-def fetch_chat_messages(wa_number, limit=300, offset=0):
+def fetch_chat_messages(chat_id, limit=300, offset=0):
     session = get_setting("waha_session", "default")
-    chat_id = quote(f"{wa_number}@c.us", safe="")
+    encoded_chat_id = quote(normalize_chat_id(chat_id), safe="")
     url = (
-        f"{_base_url()}/api/{session}/chats/{chat_id}/messages"
+        f"{_base_url()}/api/{session}/chats/{encoded_chat_id}/messages"
         f"?limit={limit}&offset={offset}&downloadMedia=false"
     )
     response = requests.get(url, headers=_headers(), timeout=60)
@@ -326,7 +360,7 @@ def sync_contact_messages_from_waha(contact_id, limit=300):
     contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
     if not contact:
         raise ValueError("Contact not found")
-    fetched = fetch_chat_messages(contact["wa_number"], limit=limit)
+    fetched = fetch_chat_messages(contact["chat_id"] or contact["wa_number"], limit=limit)
     inserted = 0
     skipped = 0
     inbound = 0
@@ -353,11 +387,13 @@ def sync_contact_messages_from_waha(contact_id, limit=300):
             text,
             json.dumps(item, ensure_ascii=False),
             external_id or None,
+            _message_sender_id(item),
+            _message_sender_name(item),
         ]
         sql = """
             INSERT OR IGNORE INTO messages
-            (contact_id, direction, message, raw_payload, external_id{created_col})
-            VALUES (?, ?, ?, ?, ?{created_param})
+            (contact_id, direction, message, raw_payload, external_id, sender_id, sender_name{created_col})
+            VALUES (?, ?, ?, ?, ?, ?, ?{created_param})
         """
         if created_at:
             params.append(created_at)

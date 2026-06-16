@@ -3,23 +3,35 @@
 <section id="view-contacts" class="view active">
   <div class="section-head">
     <div>
-      <h2>Contacts</h2>
-      <p class="note">Kontak muncul otomatis dari webhook, atau bisa ditambahkan manual untuk kirim pesan awal.</p>
+      <h2>Chats</h2>
+      <p class="note">Direct chat dan grup muncul otomatis dari webhook atau sync WAHA.</p>
     </div>
     <input id="contact-search" placeholder="Cari nomor atau nama">
   </div>
   <div class="panel compact">
     <div class="section-head tight">
       <div>
-        <h3>Tambah atau Sync Kontak</h3>
-        <p class="note">Sync WAHA mengambil daftar direct chats dari session aktif. Group/status akan dilewati.</p>
+        <h3>Tambah atau Sync Chats</h3>
+        <p class="note">Sync WAHA mengambil direct chat dan grup dari session aktif. Status/newsletter dilewati.</p>
       </div>
-      <button id="sync-waha-contacts" type="button" class="secondary">Sync dari WAHA</button>
+      <button id="sync-waha-contacts" type="button" class="secondary">Sync Chats WAHA</button>
     </div>
     <div class="inline-form">
-      <input id="new-contact-number" placeholder="6281234567890">
+      <input id="new-contact-number" placeholder="6281234567890 atau 628xxx-xxx@g.us">
       <input id="new-contact-name" placeholder="Nama opsional">
       <button id="add-contact" type="button">Tambah Manual</button>
+    </div>
+    <div class="inline-form">
+      <select id="chat-type-filter">
+        <option value="">Semua tipe</option>
+        <option value="direct">Direct</option>
+        <option value="group">Group</option>
+      </select>
+      <select id="chat-auto-filter">
+        <option value="">Semua auto reply</option>
+        <option value="on">Auto On</option>
+        <option value="off">Auto Off</option>
+      </select>
     </div>
     <pre id="contact-sync-result" class="code-box small hidden"></pre>
   </div>

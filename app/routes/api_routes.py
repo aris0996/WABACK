@@ -5,9 +5,8 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, current_app, jsonify, request
 
 from ..db import execute, get_db, get_settings, query_all, query_one, set_setting
-from ..models import normalize_memory
-from ..security import login_required, require_json, normalize_wa_number, parse_wa_number_list, validate_wa_number
-from ..services import memory_job_service, memory_service, ollama_service, waha_service
+from ..security import chat_key, login_required, normalize_chat_id, require_json, validate_chat_id
+from ..services import ollama_service, waha_service
 from ..services.log_service import log_event
 from ..services.update_service import get_git_status
 
@@ -32,28 +31,6 @@ def _with_local_time(row):
 
 def _truth(value):
     return str(value).lower() in ("1", "true", "yes", "on")
-
-
-def _contact_related_to_allowlist(contact, number, allowlist):
-    if number in allowlist or contact["wa_number"] in allowlist:
-        return True
-    display_name = (contact["display_name"] or "").strip()
-    if not display_name or not allowlist:
-        return False
-    placeholders = ",".join("?" for _ in allowlist)
-    row = query_one(
-        f"""
-        SELECT id
-        FROM contacts
-        WHERE display_name = ?
-          AND wa_number IN ({placeholders})
-          AND auto_reply_enabled = 1
-          AND ai_blocked = 0
-        LIMIT 1
-        """,
-        (display_name, *allowlist),
-    )
-    return bool(row)
 
 
 @api_bp.get("/config")
@@ -82,30 +59,44 @@ def contacts():
     search = f"%{request.args.get('q', '').strip()}%"
     limit = max(1, min(int(request.args.get("limit", 100)), 300))
     offset = max(0, int(request.args.get("offset", 0)))
+    chat_type_filter = request.args.get("type", "").strip()
+    auto_filter = request.args.get("auto", "").strip()
+    where = ["(wa_number LIKE ? OR COALESCE(display_name, '') LIKE ? OR COALESCE(chat_id, '') LIKE ?)"]
+    params = [search, search, search]
+    if chat_type_filter in ("direct", "group"):
+        where.append("chat_type = ?")
+        params.append(chat_type_filter)
+    if auto_filter in ("on", "off"):
+        where.append("auto_reply_enabled = ?")
+        params.append(1 if auto_filter == "on" else 0)
+    where_sql = " AND ".join(where)
     total = query_one(
-        """
+        f"""
         SELECT COUNT(*) AS n
         FROM contacts
-        WHERE wa_number LIKE ? OR COALESCE(display_name, '') LIKE ?
+        WHERE {where_sql}
         """,
-        (search, search),
+        tuple(params),
     )["n"]
     rows = query_all(
-        """
+        f"""
         SELECT c.*,
-               CASE WHEN m.id IS NULL THEN 0 ELSE 1 END AS has_memory,
+               (
+                   SELECT COUNT(*)
+                   FROM messages
+                   WHERE contact_id = c.id
+               ) AS message_count,
                (
                    SELECT MAX(created_at)
                    FROM messages
                    WHERE contact_id = c.id
                ) AS last_chat_at
         FROM contacts c
-        LEFT JOIN memories m ON m.contact_id = c.id
-        WHERE c.wa_number LIKE ? OR COALESCE(c.display_name, '') LIKE ?
+        WHERE {where_sql}
         ORDER BY COALESCE(last_chat_at, c.created_at) DESC
         LIMIT ? OFFSET ?
         """,
-        (search, search, limit, offset),
+        tuple(params + [limit, offset]),
     )
     return jsonify({"ok": True, "contacts": [_row(row) for row in rows], "total": total, "limit": limit, "offset": offset})
 
@@ -116,25 +107,28 @@ def create_contact():
     data, error = require_json()
     if error:
         return error
-    number = normalize_wa_number(data.get("wa_number"))
+    chat_id = normalize_chat_id(data.get("wa_number") or data.get("chat_id"))
+    key = chat_key(chat_id)
     display_name = str(data.get("display_name", "")).strip()
-    if not validate_wa_number(number):
-        return jsonify({"ok": False, "error": "Nomor WhatsApp tidak valid"}), 400
+    if not validate_chat_id(chat_id):
+        return jsonify({"ok": False, "error": "Chat ID WhatsApp tidak valid"}), 400
+    kind = "group" if chat_id.endswith("@g.us") else "direct"
     try:
         cur = execute(
             """
             INSERT INTO contacts
-            (wa_number, display_name, auto_reply_enabled, memory_generate_interval)
-            VALUES (?, ?, ?, ?)
+            (wa_number, chat_id, chat_type, display_name, auto_reply_enabled)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
-                number,
+                key,
+                chat_id,
+                kind,
                 display_name,
-                1 if get_settings().get("default_contact_auto_reply", "true") == "true" else 0,
-                int(get_settings().get("memory_generate_interval", "20") or 20),
+                0 if kind == "group" else 1 if get_settings().get("default_contact_auto_reply", "true") == "true" else 0,
             ),
         )
-        log_event("INFO", "Contact created manually", {"contact_id": cur.lastrowid, "wa_number": number})
+        log_event("INFO", "Chat created manually", {"contact_id": cur.lastrowid, "chat_id": chat_id, "chat_type": kind})
         return jsonify({"ok": True, "contact_id": cur.lastrowid})
     except Exception as exc:
         if "UNIQUE" in str(exc).upper():
@@ -168,7 +162,6 @@ def contact_detail(contact_id):
         "SELECT * FROM messages WHERE contact_id = ? ORDER BY id DESC LIMIT 150",
         (contact_id,),
     )
-    memory = query_one("SELECT * FROM memories WHERE contact_id = ?", (contact_id,))
     counts = query_one(
         """
         SELECT
@@ -185,7 +178,6 @@ def contact_detail(contact_id):
             "ok": True,
             "contact": _row(contact),
             "messages": [_row(row) for row in reversed(messages)],
-            "memory": _row(memory),
             "counts": _row(counts),
         }
     )
@@ -221,44 +213,25 @@ def unblock_ai(contact_id):
 @api_bp.post("/contacts/<int:contact_id>/memory/generate-all")
 @login_required
 def generate_all(contact_id):
-    try:
-        job_id = memory_job_service.create_memory_job(contact_id, "generate_all")
-        return jsonify({"ok": True, "job_id": job_id})
-    except Exception as exc:
-        log_event("ERROR", "Queue generate all memory failed", {"contact_id": contact_id, "error": str(exc)})
-        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": False, "error": "Memory feature removed"}), 410
 
 
 @api_bp.post("/contacts/<int:contact_id>/memory/generate-new")
 @login_required
 def generate_new(contact_id):
-    try:
-        job_id = memory_job_service.create_memory_job(contact_id, "generate_new")
-        return jsonify({"ok": True, "job_id": job_id})
-    except Exception as exc:
-        log_event("ERROR", "Queue generate new memory failed", {"contact_id": contact_id, "error": str(exc)})
-        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": False, "error": "Memory feature removed"}), 410
 
 
 @api_bp.post("/contacts/<int:contact_id>/memory/reset")
 @login_required
 def reset_memory(contact_id):
-    memory_service.reset_memory(contact_id)
-    return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Memory feature removed"}), 410
 
 
 @api_bp.post("/contacts/<int:contact_id>/memory/save")
 @login_required
 def save_memory(contact_id):
-    data, error = require_json()
-    if error:
-        return error
-    try:
-        memory = normalize_memory(data.get("memory_json", {}))
-        saved = memory_service.save_memory(contact_id, memory, "manual_edit")
-        return jsonify({"ok": True, "memory": saved})
-    except Exception as exc:
-        return jsonify({"ok": False, "error": f"Invalid memory JSON: {exc}"}), 400
+    return jsonify({"ok": False, "error": "Memory feature removed"}), 410
 
 
 @api_bp.post("/contacts/<int:contact_id>/settings")
@@ -267,17 +240,23 @@ def save_contact_settings(contact_id):
     data, error = require_json()
     if error:
         return error
-    interval = max(1, int(data.get("memory_generate_interval", 20)))
     execute(
         """
         UPDATE contacts
-        SET memory_auto_generate_enabled = ?,
-            memory_generate_interval = ?,
-            display_name = COALESCE(?, display_name),
+        SET display_name = COALESCE(?, display_name),
+            trigger_keywords = ?,
+            auto_reply_enabled = ?,
+            ai_blocked = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
-        (1 if _truth(data.get("memory_auto_generate_enabled")) else 0, interval, data.get("display_name"), contact_id),
+        (
+            data.get("display_name"),
+            str(data.get("trigger_keywords", "")),
+            1 if _truth(data.get("auto_reply_enabled")) else 0,
+            1 if _truth(data.get("ai_blocked")) else 0,
+            contact_id,
+        ),
     )
     return jsonify({"ok": True})
 
@@ -289,25 +268,21 @@ def contact_reply_debug(contact_id):
     if not contact:
         return jsonify({"ok": False, "error": "Contact not found"}), 404
     settings = get_settings()
-    number = contact["wa_number"]
-    blocklist = parse_wa_number_list(settings.get("blocklist_numbers", ""))
-    allowlist = parse_wa_number_list(settings.get("allowlist_numbers", ""))
-    related_allowlist = _contact_related_to_allowlist(contact, number, allowlist)
-    auto_reply_ok = bool(contact["auto_reply_enabled"]) or related_allowlist
+    group_keywords = [item.strip() for item in str(contact["trigger_keywords"] or settings.get("group_trigger_keywords", "")).replace(",", "\n").splitlines() if item.strip()]
     checks = {
         "waha_enabled": settings.get("waha_enabled", "true") == "true",
         "global_auto_reply": settings.get("global_auto_reply", "true") == "true",
-        "contact_auto_reply": auto_reply_ok,
+        "chat_auto_reply": bool(contact["auto_reply_enabled"]),
         "contact_ai_allowed": not bool(contact["ai_blocked"]),
-        "not_in_blocklist": number not in blocklist,
-        "allowlist_ok": settings.get("allowlist_mode", "false") != "true" or related_allowlist or bool(contact["auto_reply_enabled"]),
+        "group_trigger_configured": contact["chat_type"] != "group" or bool(group_keywords),
     }
     return jsonify(
         {
             "ok": True,
             "checks": checks,
             "can_reply": all(checks.values()),
-            "note": "Jika WAHA memakai LID, kontak dianggap cocok bila nomor ini Auto Reply On atau ada kontak bernama sama yang masuk allowlist dan Auto Reply On.",
+            "group_keywords": group_keywords,
+            "note": "Direct chat membalas saat auto reply on. Grup hanya membalas jika auto reply on dan pesan mengandung trigger keyword.",
         }
     )
 
@@ -352,15 +327,22 @@ def send_message():
     data, error = require_json()
     if error:
         return error
-    number = normalize_wa_number(data.get("wa_number"))
+    contact_id = data.get("contact_id")
+    chat_id = normalize_chat_id(data.get("chat_id") or data.get("wa_number"))
     text = str(data.get("message", "")).strip()
-    if not validate_wa_number(number) or not text:
-        return jsonify({"ok": False, "error": "Nomor WhatsApp atau pesan tidak valid"}), 400
+    contact = None
+    if contact_id:
+        contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+        if contact:
+            chat_id = normalize_chat_id(contact["chat_id"] or contact["wa_number"])
+    if not validate_chat_id(chat_id) or not text:
+        return jsonify({"ok": False, "error": "Chat ID WhatsApp atau pesan tidak valid"}), 400
     if get_settings().get("waha_enabled", "true") != "true":
         return jsonify({"ok": False, "error": "Integrasi WAHA sedang nonaktif"}), 400
     try:
-        result = waha_service.send_message(number, text)
-        contact = query_one("SELECT id FROM contacts WHERE wa_number = ?", (number,))
+        result = waha_service.send_message(chat_id, text, chat_id=chat_id)
+        if not contact:
+            contact = query_one("SELECT id FROM contacts WHERE chat_id = ? OR wa_number = ?", (chat_id, chat_key(chat_id)))
         if contact:
             execute(
                 "INSERT INTO messages (contact_id, direction, message, raw_payload) VALUES (?, 'out', ?, ?)",
@@ -368,7 +350,7 @@ def send_message():
             )
         return jsonify({"ok": True, "result": result})
     except Exception as exc:
-        log_event("ERROR", "Manual message failed", {"wa_number": number, "error": str(exc)})
+        log_event("ERROR", "Manual message failed", {"chat_id": chat_id, "error": str(exc)})
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
@@ -407,8 +389,6 @@ def ai_logs():
         "%auto reply%",
         "%Auto reply%",
         "%Ollama%",
-        "%Memory job%",
-        "%memory generated%",
     ]
     where = ["(" + " OR ".join(["message LIKE ?"] * len(like_terms)) + ")"]
     params = list(like_terms)
@@ -428,8 +408,8 @@ def overview():
     db = get_db()
     stats = {
         "contacts": db.execute("SELECT COUNT(*) AS n FROM contacts").fetchone()["n"],
+        "groups": db.execute("SELECT COUNT(*) AS n FROM contacts WHERE chat_type = 'group'").fetchone()["n"],
         "messages": db.execute("SELECT COUNT(*) AS n FROM messages").fetchone()["n"],
-        "memories": db.execute("SELECT COUNT(*) AS n FROM memories").fetchone()["n"],
     }
     cfg = get_settings()
     return jsonify({"ok": True, "stats": stats, "config": cfg})
@@ -447,7 +427,4 @@ def update_status():
 @api_bp.get("/memory-jobs/<int:job_id>")
 @login_required
 def memory_job_status(job_id):
-    job = memory_job_service.get_memory_job(job_id)
-    if not job:
-        return jsonify({"ok": False, "error": "Memory job not found"}), 404
-    return jsonify({"ok": True, "job": job})
+    return jsonify({"ok": False, "error": "Memory feature removed"}), 410
