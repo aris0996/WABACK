@@ -58,7 +58,6 @@ Minimal ubah:
 SECRET_KEY=isi-random-panjang
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=password-kuat
-WEBHOOK_TOKEN=token-webhook-kuat
 ```
 
 SQLite default tersimpan di `./data/app.db`. Struktur akses database dipusatkan di `app/db.py` supaya lebih mudah diganti ke MySQL/PostgreSQL nanti.
@@ -96,8 +95,24 @@ Set webhook WAHA ke:
 
 ```text
 POST http://localhost:5000/webhook/waha
-Header: X-Webhook-Token: token-webhook-kuat
 ```
+
+Secara default webhook WAHA bisa tanpa token jika `.env` berisi:
+
+```env
+WEBHOOK_TOKEN=
+```
+
+Jika ingin mengaktifkan proteksi token, isi `WEBHOOK_TOKEN`, lalu kirim token dengan salah satu cara:
+
+```text
+X-Webhook-Token: token-webhook-kuat
+Authorization: Bearer token-webhook-kuat
+POST http://localhost:5000/webhook/waha?token=token-webhook-kuat
+POST http://localhost:5000/webhook/waha?webhook_token=token-webhook-kuat
+```
+
+Jika token salah, aplikasi tidak memproses pesan dan hanya mencatat warning maksimal sekali per IP setiap 5 menit agar log tidak penuh.
 
 Konfigurasi Docker server memakai `network_mode: host`, jadi WAHA di host bisa diakses dari aplikasi memakai `http://127.0.0.1:3000`. Jika WAHA berada di server/container lain, gunakan hostname/network yang bisa saling diakses.
 

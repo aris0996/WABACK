@@ -10,7 +10,7 @@ class Config:
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/app.db")
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
-    WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "change-this-webhook-token")
+    WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "")
     GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     AUTO_UPDATE_API_KEY = os.getenv("AUTO_UPDATE_API_KEY", "")
     AUTO_UPDATE_BRANCH = os.getenv("AUTO_UPDATE_BRANCH", "")

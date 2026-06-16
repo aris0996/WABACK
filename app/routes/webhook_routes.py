@@ -33,6 +33,23 @@ def _extract_message(payload):
     return normalize_wa_number(chat_id), str(body).strip(), name
 
 
+def _webhook_token_valid():
+    expected = current_app.config["WEBHOOK_TOKEN"]
+    if not expected:
+        return True
+    provided = (
+        request.headers.get("X-Webhook-Token")
+        or request.headers.get("X-WAHA-Webhook-Token")
+        or request.args.get("token")
+        or request.args.get("webhook_token")
+        or ""
+    )
+    auth_header = request.headers.get("Authorization", "")
+    if not provided and auth_header.lower().startswith("bearer "):
+        provided = auth_header.split(" ", 1)[1].strip()
+    return provided == expected
+
+
 def _get_or_create_contact(wa_number, display_name):
     contact = query_one("SELECT * FROM contacts WHERE wa_number = ?", (wa_number,))
     if contact:
@@ -73,16 +90,19 @@ def _can_reply(contact, wa_number):
 def waha_webhook():
     if webhook_rate_limited():
         return jsonify({"ok": False, "error": "Rate limit exceeded"}), 429
-    if request.headers.get("X-Webhook-Token") != current_app.config["WEBHOOK_TOKEN"]:
+    if not _webhook_token_valid():
         ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0]
         log_event_throttled(
             "WARNING",
             "Webhook rejected: invalid token",
-            {"ip": ip},
+            {
+                "ip": ip,
+                "hint": "Set token via X-Webhook-Token, Authorization Bearer, or webhook URL query ?token=WEBHOOK_TOKEN.",
+            },
             key=f"bad-webhook-token:{ip}",
-            window_seconds=60,
+            window_seconds=300,
         )
-        return jsonify({"ok": False, "error": "Invalid webhook token"}), 401
+        return jsonify({"ok": True, "ignored": True, "reason": "invalid webhook token"}), 200
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "Invalid JSON"}), 400
