@@ -44,6 +44,7 @@ code { background: #eef2f6; padding: 2px 5px; border-radius: 4px; }
 h2 { margin: 0 0 18px; }
 h3, h4 { margin: 0 0 12px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.section-head.tight { margin-bottom: 10px; }
 .section-head input { max-width: 340px; }
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
 .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
@@ -87,6 +88,7 @@ textarea { min-height: 130px; resize: vertical; font-family: Consolas, monospace
 .meter span { color: var(--muted); }
 .empty-state { color: var(--muted); text-align: center; padding: 22px; }
 .code-box, td pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, monospace; font-size: 12px; background: #0f172a; color: #e2e8f0; border-radius: 6px; padding: 12px; min-height: 44px; }
+.code-box.small { margin-top: 12px; min-height: 0; }
 td pre { background: #f8fafc; color: var(--text); max-width: 520px; }
 .log-level { font-weight: 700; }
 .log-level.error { color: var(--danger); }

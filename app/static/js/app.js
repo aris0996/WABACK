@@ -129,6 +129,20 @@ async function addContact() {
   await openContact(data.contact_id);
 }
 
+async function syncWahaContacts() {
+  const box = $('#contact-sync-result');
+  if (box) {
+    box.classList.remove('hidden');
+    box.textContent = 'Sync kontak dari WAHA...';
+  }
+  const data = await guarded(() => api('/api/contacts/sync-waha', {
+    method: 'POST',
+    body: JSON.stringify({ limit: 300 }),
+  }), 'Sync kontak WAHA selesai');
+  if (box) box.textContent = pretty(data.result);
+  await loadContacts();
+}
+
 async function postAndReload(path) {
   await guarded(() => api(path, { method: 'POST', body: '{}' }), 'Perubahan tersimpan');
   await loadContacts();
@@ -304,6 +318,7 @@ function on(selector, event, handler) {
 on('#refresh-current', 'click', () => guarded(refreshCurrent));
 on('#contact-search', 'input', () => guarded(loadContacts));
 on('#add-contact', 'click', addContact);
+on('#sync-waha-contacts', 'click', syncWahaContacts);
 on('#save-settings', 'click', () => saveForm('#settings-form', '#settings-result'));
 on('#save-prompts', 'click', () => saveForm('#prompts-form', '#prompts-result'));
 on('#test-waha', 'click', () => testService('waha', '#settings-result'));

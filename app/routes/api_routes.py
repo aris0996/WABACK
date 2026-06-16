@@ -93,6 +93,20 @@ def create_contact():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@api_bp.post("/contacts/sync-waha")
+@login_required
+def sync_waha_contacts():
+    data = request.get_json(silent=True) if request.is_json else {}
+    try:
+        limit = max(1, min(int((data or {}).get("limit", 200)), 1000))
+        result = waha_service.sync_contacts_from_waha(limit=limit)
+        log_event("INFO", "Contacts synced from WAHA", result)
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:
+        log_event("ERROR", "WAHA contact sync failed", {"error": str(exc)})
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @api_bp.get("/contacts/<int:contact_id>")
 @login_required
 def contact_detail(contact_id):

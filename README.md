@@ -101,6 +101,30 @@ Header: X-Webhook-Token: token-webhook-kuat
 
 Konfigurasi Docker server memakai `network_mode: host`, jadi WAHA di host bisa diakses dari aplikasi memakai `http://127.0.0.1:3000`. Jika WAHA berada di server/container lain, gunakan hostname/network yang bisa saling diakses.
 
+## Konsep Kontak
+
+Tabel `contacts` adalah cache lokal aplikasi untuk menentukan auto reply, block AI, checkpoint memory, dan interval generate memory. Kontak bisa masuk dari tiga sumber:
+
+- Webhook WAHA saat pesan baru masuk.
+- Tambah manual dari menu Contacts.
+- Tombol **Sync dari WAHA** di menu Contacts.
+
+Sync WAHA mengambil daftar direct chats dari:
+
+```text
+GET /api/{session}/chats/overview
+```
+
+Jika endpoint itu tidak tersedia, aplikasi mencoba fallback:
+
+```text
+GET /api/{session}/chats
+```
+
+Group chat dan `status@broadcast` dilewati karena memory/auto reply dirancang per nomor kontak personal.
+
+Catatan WAHA: untuk engine NOWEB, fitur mengambil chats/contacts membutuhkan Store aktif di konfigurasi session WAHA. Jika sync menghasilkan kosong atau error feature unavailable, aktifkan NOWEB Store sebelum scan QR/session dipakai.
+
 ## GitHub Auto Update
 
 Aplikasi menyediakan endpoint update:
