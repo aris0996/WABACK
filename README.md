@@ -142,6 +142,22 @@ Catatan WAHA: untuk engine NOWEB, fitur mengambil chats/contacts membutuhkan Sto
 
 Jika sync menampilkan `received` besar tetapi `inserted` tetap `0`, lihat hasil `sample_keys` di box sync. Itu berarti format response WAHA berbeda dari parser yang dikenali. Aplikasi akan mencoba membaca nomor dari `id`, `chatId`, `remoteJid`, `jid`, `chat.id`, `contact.id`, dan format object `{user, server}`.
 
+## Sync History Chat WAHA
+
+Di detail kontak ada tombol **Sync History WAHA**. Tombol ini mengambil pesan dari:
+
+```text
+GET /api/{session}/chats/{chatId}/messages?limit=300&downloadMedia=false
+```
+
+Pesan disimpan ke tabel `messages` dengan `external_id` agar sync berulang tidak membuat duplikat. Tombol **Sync WAHA + Generate Semua** menjalankan urutan:
+
+1. Ambil history chat dari WAHA untuk kontak tersebut.
+2. Simpan pesan baru ke database lokal.
+3. Generate memory dari semua pesan lokal kontak.
+
+Jadi generate semua tidak lagi hanya mengandalkan pesan webhook yang sudah masuk, tetapi menarik history WAHA lebih dulu.
+
 ## GitHub Auto Update
 
 Aplikasi menyediakan endpoint update:
@@ -276,7 +292,7 @@ Jika generate gagal, checkpoint tidak diubah.
 
 Urutan pengecekan webhook:
 
-1. Validasi `X-Webhook-Token`.
+1. Terima webhook WAHA tanpa token jika `WEBHOOK_TOKEN` kosong.
 2. Simpan pesan mentah.
 3. Cek global auto reply.
 4. Cek blocklist dan allowlist.
@@ -284,6 +300,8 @@ Urutan pengecekan webhook:
 6. Generate balasan dengan memory jika ada.
 7. Kirim via WAHA dan simpan pesan keluar.
 8. Cek auto memory incremental.
+
+Jika webhook belum masuk, buka Logs dan cari `WAHA webhook ignored`. Log itu berisi `event`, `keys`, dan `payload_keys` untuk membantu mencocokkan format payload WAHA.
 
 ## Troubleshooting
 

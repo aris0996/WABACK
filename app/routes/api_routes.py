@@ -123,12 +123,24 @@ def contact_detail(contact_id):
         (contact_id,),
     )
     memory = query_one("SELECT * FROM memories WHERE contact_id = ?", (contact_id,))
+    counts = query_one(
+        """
+        SELECT
+            COUNT(*) AS total_messages,
+            SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END) AS inbound_messages,
+            SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END) AS outbound_messages
+        FROM messages
+        WHERE contact_id = ?
+        """,
+        (contact_id,),
+    )
     return jsonify(
         {
             "ok": True,
             "contact": _row(contact),
             "messages": [_row(row) for row in reversed(messages)],
             "memory": _row(memory),
+            "counts": _row(counts),
         }
     )
 
@@ -164,6 +176,9 @@ def unblock_ai(contact_id):
 @login_required
 def generate_all(contact_id):
     try:
+        limit = int(get_settings().get("waha_history_sync_limit", "300") or 300)
+        sync_result = waha_service.sync_contact_messages_from_waha(contact_id, limit=limit)
+        log_event("INFO", "WAHA history synced before generate all", {"contact_id": contact_id, **sync_result})
         return jsonify({"ok": True, "memory": memory_service.generate_memory_all(contact_id)})
     except Exception as exc:
         log_event("ERROR", "Generate all memory failed", {"contact_id": contact_id, "error": str(exc)})
@@ -220,6 +235,20 @@ def save_contact_settings(contact_id):
         (1 if _truth(data.get("memory_auto_generate_enabled")) else 0, interval, data.get("display_name"), contact_id),
     )
     return jsonify({"ok": True})
+
+
+@api_bp.post("/contacts/<int:contact_id>/sync-waha-history")
+@login_required
+def sync_waha_history(contact_id):
+    data = request.get_json(silent=True) if request.is_json else {}
+    try:
+        limit = max(1, min(int((data or {}).get("limit", get_settings().get("waha_history_sync_limit", "300"))), 1000))
+        result = waha_service.sync_contact_messages_from_waha(contact_id, limit=limit)
+        log_event("INFO", "WAHA history synced", {"contact_id": contact_id, **result})
+        return jsonify({"ok": True, "result": result})
+    except Exception as exc:
+        log_event("ERROR", "WAHA history sync failed", {"contact_id": contact_id, "error": str(exc)})
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
 @api_bp.post("/test-ollama")

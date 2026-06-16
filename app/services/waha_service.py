@@ -1,4 +1,8 @@
+import json
+
 import requests
+from datetime import datetime, timezone
+from urllib.parse import quote
 
 from ..db import execute, get_db, get_setting, query_one
 from ..security import normalize_wa_number, validate_wa_number
@@ -198,4 +202,106 @@ def sync_contacts_from_waha(limit=200):
         "skipped": skipped,
         "skipped_reasons": skipped_reasons,
         "sample_keys": sample_keys,
+    }
+
+
+def _message_text(item):
+    if not isinstance(item, dict):
+        return ""
+    for key in ("body", "text", "caption", "message"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            nested = value.get("text") or value.get("body")
+            if nested:
+                return str(nested).strip()
+    data = item.get("_data") or {}
+    if isinstance(data, dict):
+        for key in ("body", "caption", "text"):
+            if data.get(key):
+                return str(data[key]).strip()
+    return ""
+
+
+def _message_external_id(item):
+    value = item.get("id") if isinstance(item, dict) else ""
+    if isinstance(value, dict):
+        return str(value.get("_serialized") or value.get("id") or value.get("remote") or "")
+    return str(value or "")
+
+
+def _message_created_at(item):
+    ts = item.get("timestamp") if isinstance(item, dict) else None
+    try:
+        ts = int(ts)
+        if ts > 0:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    return None
+
+
+def fetch_chat_messages(wa_number, limit=300, offset=0):
+    session = get_setting("waha_session", "default")
+    chat_id = quote(f"{wa_number}@c.us", safe="")
+    url = (
+        f"{_base_url()}/api/{session}/chats/{chat_id}/messages"
+        f"?limit={limit}&offset={offset}&downloadMedia=false"
+    )
+    response = requests.get(url, headers=_headers(), timeout=60)
+    response.raise_for_status()
+    data = response.json() if response.content else []
+    if isinstance(data, dict):
+        data = data.get("messages") or data.get("data") or data.get("items") or []
+    return {"url": url, "items": data if isinstance(data, list) else []}
+
+
+def sync_contact_messages_from_waha(contact_id, limit=300):
+    contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+    if not contact:
+        raise ValueError("Contact not found")
+    fetched = fetch_chat_messages(contact["wa_number"], limit=limit)
+    inserted = 0
+    skipped = 0
+    db = get_db()
+    for item in fetched["items"]:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+        text = _message_text(item)
+        external_id = _message_external_id(item)
+        if not text:
+            skipped += 1
+            continue
+        direction = "out" if item.get("fromMe") or item.get("from_me") else "in"
+        created_at = _message_created_at(item)
+        params = [
+            contact_id,
+            direction,
+            text,
+            json.dumps(item, ensure_ascii=False),
+            external_id or None,
+        ]
+        sql = """
+            INSERT OR IGNORE INTO messages
+            (contact_id, direction, message, raw_payload, external_id{created_col})
+            VALUES (?, ?, ?, ?, ?{created_param})
+        """
+        if created_at:
+            params.append(created_at)
+            sql = sql.format(created_col=", created_at", created_param=", ?")
+        else:
+            sql = sql.format(created_col="", created_param="")
+        cur = db.execute(sql, tuple(params))
+        if cur.rowcount:
+            inserted += 1
+        else:
+            skipped += 1
+    db.commit()
+    return {
+        "source_url": fetched["url"],
+        "received": len(fetched["items"]),
+        "inserted": inserted,
+        "skipped": skipped,
     }

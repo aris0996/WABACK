@@ -44,6 +44,7 @@ DEFAULT_SETTINGS = {
     "memory_auto_generate": os.getenv("DEFAULT_MEMORY_AUTO_GENERATE", "true"),
     "memory_generate_interval": os.getenv("DEFAULT_MEMORY_GENERATE_INTERVAL", "20"),
     "memory_generate_mode": "manual_auto",
+    "waha_history_sync_limit": "300",
     "prompt_chatbot_without_memory": "Jawab pesan WhatsApp berikut secara singkat dan natural.",
     "prompt_chatbot_with_memory": "Gunakan memory sebagai konteks internal. Jangan menyebut memory kepada user.",
     "prompt_memory_extractor": "Ekstrak memory dari chat berikut dan keluarkan JSON valid saja.",

@@ -154,43 +154,54 @@ async function openContact(id) {
   state.activeContact = id;
   const data = await guarded(() => api(`/api/contacts/${id}`));
   const c = data.contact;
+  const counts = data.counts || {};
   const memory = data.memory ? JSON.parse(data.memory.memory_json) : {};
   $('#contact-detail').classList.remove('hidden');
   $('#contact-detail').innerHTML = `
     <div class="detail-title">
       <div>
         <h3>${esc(c.wa_number)}</h3>
-        <p>${esc(c.display_name || 'tanpa nama')}</p>
+        <p>${esc(c.display_name || 'tanpa nama')} · ${counts.total_messages || 0} pesan lokal</p>
       </div>
       <div class="mini-actions">
         <button class="secondary" onclick="postAndReload('/api/contacts/${c.id}/toggle-auto-reply')">${c.auto_reply_enabled ? 'Matikan Auto Reply' : 'Aktifkan Auto Reply'}</button>
         <button class="${c.ai_blocked ? 'secondary' : 'danger'}" onclick="postAndReload('/api/contacts/${c.id}/${c.ai_blocked ? 'unblock-ai' : 'block-ai'}')">${c.ai_blocked ? 'Unblock AI' : 'Block AI'}</button>
       </div>
     </div>
+    <div class="stats-grid detail-stats">
+      <div class="stat"><span>Pesan Lokal</span><strong>${counts.total_messages || 0}</strong><small>In ${counts.inbound_messages || 0} · Out ${counts.outbound_messages || 0}</small></div>
+      <div class="stat"><span>Auto Reply</span><strong>${c.auto_reply_enabled ? 'On' : 'Off'}</strong><small>Status balasan untuk kontak ini</small></div>
+      <div class="stat"><span>AI Block</span><strong>${c.ai_blocked ? 'Blocked' : 'Allowed'}</strong><small>Kontrol AI per kontak</small></div>
+      <div class="stat"><span>Memory Baru</span><strong>${c.new_message_count_since_memory}/${c.memory_generate_interval}</strong><small>Checkpoint #${c.last_memory_message_id}</small></div>
+    </div>
     <div class="detail-grid">
       <div class="panel inset">
-        <h4>Pengaturan Kontak</h4>
+        <h4>1. Pengaturan Kontak</h4>
         <label>Nama display<input id="detail-name" value="${esc(c.display_name || '')}"></label>
         <label>Auto generate memory
           <select id="detail-auto-memory"><option value="true" ${c.memory_auto_generate_enabled ? 'selected' : ''}>On</option><option value="false" ${!c.memory_auto_generate_enabled ? 'selected' : ''}>Off</option></select>
         </label>
         <label>Interval generate<input id="detail-interval" type="number" min="1" value="${c.memory_generate_interval}"></label>
-        <div class="meter">
-          <span>Pesan baru sejak memory</span>
-          <strong>${c.new_message_count_since_memory}/${c.memory_generate_interval}</strong>
-        </div>
-        <p class="note">Last memory message ID: ${c.last_memory_message_id}</p>
         <div class="actions">
           <button onclick="saveContactSettings(${id})">Simpan kontak</button>
-          <button onclick="memoryAction(${id}, 'generate-all')">Generate semua</button>
-          <button onclick="memoryAction(${id}, 'generate-new')">Generate baru</button>
-          <button class="danger" onclick="memoryAction(${id}, 'reset')">Reset memory</button>
+        </div>
+        <hr>
+        <h4>2. WAHA & Pesan</h4>
+        <p class="note">Sync history mengambil chat dari WAHA lalu menyimpannya ke database lokal tanpa duplikat.</p>
+        <div class="actions">
+          <button onclick="syncWahaHistory(${id})">Sync History WAHA</button>
         </div>
         <label>Kirim pesan manual<textarea id="manual-message" placeholder="Tulis pesan untuk dikirim via WAHA"></textarea></label>
         <button onclick="sendManual('${esc(c.wa_number)}')">Kirim via WAHA</button>
       </div>
       <div class="panel inset">
-        <h4>Memory JSON Final</h4>
+        <h4>3. Memory</h4>
+        <p class="note">Generate semua akan sync history WAHA terlebih dahulu, lalu membuat memory dari semua pesan lokal.</p>
+        <div class="actions">
+          <button onclick="memoryAction(${id}, 'generate-all')">Sync WAHA + Generate Semua</button>
+          <button class="secondary" onclick="memoryAction(${id}, 'generate-new')">Generate Pesan Baru</button>
+          <button class="danger" onclick="memoryAction(${id}, 'reset')">Reset Memory</button>
+        </div>
         <label><textarea id="memory-json" class="memory-editor">${esc(JSON.stringify(memory, null, 2))}</textarea></label>
         <button onclick="saveMemory(${id})">Simpan memory manual</button>
       </div>
@@ -201,6 +212,16 @@ async function openContact(id) {
         ${data.messages.length ? data.messages.map(m => `<div class="msg ${m.direction}"><small>#${m.id} ${esc(m.direction)} - ${esc(m.created_at)}</small>${esc(m.message)}</div>`).join('') : '<div class="empty-state">Belum ada riwayat chat.</div>'}
       </div>
     </div>`;
+}
+
+async function syncWahaHistory(id) {
+  const result = await guarded(() => api(`/api/contacts/${id}/sync-waha-history`, {
+    method: 'POST',
+    body: JSON.stringify({ limit: 300 }),
+  }), 'History WAHA tersinkron');
+  toast(`History: ${result.result.inserted} baru, ${result.result.skipped} dilewati`);
+  await openContact(id);
+  await loadContacts();
 }
 
 async function saveContactSettings(id) {

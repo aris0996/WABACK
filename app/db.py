@@ -43,6 +43,7 @@ def init_db(app):
         db.execute("PRAGMA journal_mode = WAL")
         db.execute("PRAGMA synchronous = NORMAL")
         db.executescript(SCHEMA)
+        _run_migrations(db)
         for key, value in DEFAULT_SETTINGS.items():
             db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
@@ -82,6 +83,20 @@ def set_setting(key, value):
     )
 
 
+def _run_migrations(db):
+    columns = [row["name"] for row in db.execute("PRAGMA table_info(messages)").fetchall()]
+    if "external_id" not in columns:
+        db.execute("ALTER TABLE messages ADD COLUMN external_id TEXT")
+    db.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_contact_external
+        ON messages(contact_id, external_id)
+        WHERE external_id IS NOT NULL
+        """
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id)")
+
+
 def get_settings():
     rows = query_all("SELECT key, value FROM settings ORDER BY key")
     return {row["key"]: row["value"] for row in rows}
@@ -108,6 +123,7 @@ CREATE TABLE IF NOT EXISTS messages (
     direction TEXT NOT NULL CHECK(direction IN ('in', 'out')),
     message TEXT NOT NULL,
     raw_payload TEXT,
+    external_id TEXT,
     used_for_memory INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE

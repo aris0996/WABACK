@@ -21,15 +21,25 @@ def _list_setting(key):
 
 def _extract_message(payload):
     data = payload.get("payload", payload)
-    if payload.get("event") and payload.get("event") not in ("message", "message.any"):
+    event = payload.get("event") or payload.get("type") or ""
+    if event and event not in ("message", "message.any"):
         return None, None, None
     if data.get("fromMe") or data.get("from_me"):
         return None, None, None
-    chat_id = data.get("from") or data.get("chatId") or data.get("chat_id") or data.get("remoteJid")
-    body = data.get("body") or data.get("text") or data.get("message") or ""
+    raw_data = data.get("_data") if isinstance(data.get("_data"), dict) else {}
+    chat_id = (
+        data.get("from")
+        or data.get("chatId")
+        or data.get("chat_id")
+        or data.get("remoteJid")
+        or raw_data.get("from")
+        or raw_data.get("remoteJid")
+        or raw_data.get("id", {}).get("remote")
+    )
+    body = data.get("body") or data.get("text") or data.get("caption") or data.get("message") or raw_data.get("body") or raw_data.get("caption") or ""
     if isinstance(body, dict):
-        body = body.get("text", "")
-    name = data.get("pushName") or data.get("notifyName") or data.get("senderName") or ""
+        body = body.get("text") or body.get("body") or ""
+    name = data.get("pushName") or data.get("notifyName") or data.get("senderName") or raw_data.get("notifyName") or ""
     return normalize_wa_number(chat_id), str(body).strip(), name
 
 
@@ -108,6 +118,18 @@ def waha_webhook():
         return jsonify({"ok": False, "error": "Invalid JSON"}), 400
     wa_number, message, display_name = _extract_message(payload)
     if not validate_wa_number(wa_number) or not message:
+        log_event_throttled(
+            "INFO",
+            "WAHA webhook ignored",
+            {
+                "event": payload.get("event") or payload.get("type"),
+                "keys": sorted(payload.keys()),
+                "payload_keys": sorted((payload.get("payload") or {}).keys()) if isinstance(payload.get("payload"), dict) else [],
+                "reason": "not a direct text message",
+            },
+            key=f"ignored-webhook:{payload.get('event') or payload.get('type')}",
+            window_seconds=300,
+        )
         return jsonify({"ok": True, "ignored": True})
 
     contact = _get_or_create_contact(wa_number, display_name)

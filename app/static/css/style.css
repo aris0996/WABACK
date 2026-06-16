@@ -81,7 +81,9 @@ td .mini-actions, .mini-actions { display: flex; gap: 7px; flex-wrap: wrap; }
 .detail-title { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 16px; }
 .detail-title h3 { margin: 0; font-size: 20px; }
 .detail-title p { margin: 4px 0 0; color: var(--muted); }
+.detail-stats { margin-bottom: 16px; }
 .detail-grid { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; gap: 16px; align-items: start; margin-bottom: 16px; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .chat-box { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: white; }
 .msg { margin-bottom: 10px; padding: 9px 10px; border-radius: 8px; background: var(--soft); border: 1px solid var(--line); }
 .msg.out { background: var(--primary-soft); }
