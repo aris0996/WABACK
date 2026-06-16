@@ -1,123 +1,29 @@
-from datetime import datetime
-from .extensions import db
+import json
 
 
-class AdminUser(db.Model):
-    __tablename__ = "admin_users"
-
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-
-class AppSetting(db.Model):
-    __tablename__ = "app_settings"
-
-    id = db.Column(db.Integer, primary_key=True)
-    key = db.Column(db.String(120), unique=True, nullable=False)
-    value = db.Column(db.Text, nullable=True)
-
-
-class Contact(db.Model):
-    __tablename__ = "contacts"
-
-    id = db.Column(db.Integer, primary_key=True)
-    chat_id = db.Column(db.String(120), unique=True, nullable=False)
-    name = db.Column(db.String(160), nullable=True)
-    type = db.Column(db.String(20), default="private", nullable=False)
-    permission = db.Column(db.String(20), default="blocked", nullable=False)
-    reply_mode = db.Column(db.String(30), default="disabled", nullable=False)
-    trigger_keyword = db.Column(db.String(160), nullable=True)
-    active_start = db.Column(db.String(5), nullable=True)
-    active_end = db.Column(db.String(5), nullable=True)
-    ai_style_override = db.Column(db.Text, nullable=True)
-    max_chars_override = db.Column(db.Integer, nullable=True)
-    priority_level = db.Column(db.String(20), default="normal", nullable=False)
-    relationship_type = db.Column(db.String(30), default="general", nullable=False)
-    daily_auto_reply_limit = db.Column(db.Integer, nullable=True)
-    cooldown_seconds = db.Column(db.Integer, default=0, nullable=False)
-    fallback_to_draft_on_error = db.Column(db.Boolean, default=True, nullable=False)
-    keyword_match_mode = db.Column(db.String(20), default="contains", nullable=False)
-    last_auto_replied_at = db.Column(db.DateTime, nullable=True)
-    last_inbound_at = db.Column(db.DateTime, nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    memory_summary = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    memories = db.relationship("ContactMemory", backref="contact", lazy=True, cascade="all, delete-orphan")
+DEFAULT_MEMORY = {
+    "nama": "none",
+    "panggilan": "none",
+    "pekerjaan": "none",
+    "sekolah": "none",
+    "lokasi": "none",
+    "minat": [],
+    "kebutuhan": [],
+    "gaya_bahasa": "none",
+    "catatan_penting": [],
+    "larangan": [],
+    "hubungan_dengan_saya": "none",
+    "last_summary": "none",
+}
 
 
-class Message(db.Model):
-    __tablename__ = "messages"
-
-    id = db.Column(db.Integer, primary_key=True)
-    waha_message_id = db.Column(db.String(160), nullable=True, index=True)
-    session = db.Column(db.String(120), nullable=True)
-    chat_id = db.Column(db.String(120), nullable=False, index=True)
-    sender_id = db.Column(db.String(120), nullable=True)
-    sender_name = db.Column(db.String(160), nullable=True)
-    body = db.Column(db.Text, nullable=True)
-    from_me = db.Column(db.Boolean, default=False, nullable=False)
-    is_group = db.Column(db.Boolean, default=False, nullable=False)
-    status = db.Column(db.String(30), default="new", nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-    drafts = db.relationship("AiDraft", backref="message", lazy=True, cascade="all, delete-orphan")
-
-
-class AiDraft(db.Model):
-    __tablename__ = "ai_drafts"
-
-    id = db.Column(db.Integer, primary_key=True)
-    message_id = db.Column(db.Integer, db.ForeignKey("messages.id"), nullable=False, index=True)
-    prompt = db.Column(db.Text, nullable=False)
-    response = db.Column(db.Text, nullable=True)
-    edited_response = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(30), default="generated", nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-
-class ScheduledMessage(db.Model):
-    __tablename__ = "scheduled_messages"
-
-    id = db.Column(db.Integer, primary_key=True)
-    target_chat_id = db.Column(db.String(120), nullable=False, index=True)
-    message = db.Column(db.Text, nullable=False)
-    schedule_time = db.Column(db.DateTime, nullable=False, index=True)
-    repeat = db.Column(db.String(20), default="none", nullable=False)
-    enabled = db.Column(db.Boolean, default=True, nullable=False)
-    last_sent_at = db.Column(db.DateTime, nullable=True)
-    last_status = db.Column(db.String(30), default="pending", nullable=False)
-    last_error = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-
-class MessageLog(db.Model):
-    __tablename__ = "message_logs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    direction = db.Column(db.String(20), nullable=False)
-    chat_id = db.Column(db.String(120), nullable=False, index=True)
-    message = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(30), nullable=False)
-    error = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-
-class ContactMemory(db.Model):
-    __tablename__ = "contact_memories"
-
-    id = db.Column(db.Integer, primary_key=True)
-    contact_id = db.Column(db.Integer, db.ForeignKey("contacts.id"), nullable=False, index=True)
-    category = db.Column(db.String(30), nullable=False, default="profile")
-    content = db.Column(db.Text, nullable=False)
-    confidence = db.Column(db.String(20), nullable=False, default="medium")
-    source_message_id = db.Column(db.Integer, db.ForeignKey("messages.id"), nullable=True)
-    pinned = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+def normalize_memory(value):
+    if not value:
+        return DEFAULT_MEMORY.copy()
+    if isinstance(value, str):
+        value = json.loads(value)
+    merged = DEFAULT_MEMORY.copy()
+    for key in merged:
+        if key in value and value[key] not in (None, ""):
+            merged[key] = value[key]
+    return merged

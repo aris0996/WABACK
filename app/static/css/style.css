@@ -1,0 +1,68 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #17202a;
+  --muted: #687383;
+  --line: #dfe4ea;
+  --primary: #146c43;
+  --danger: #b42318;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }
+button, input, textarea, select { font: inherit; }
+button { border: 0; border-radius: 6px; padding: 9px 12px; background: var(--primary); color: white; cursor: pointer; }
+button.secondary { background: #44546a; }
+button.danger { background: var(--danger); }
+button:disabled { opacity: .6; cursor: not-allowed; }
+
+.login-body { min-height: 100vh; display: grid; place-items: center; }
+.login-box { width: min(380px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 28px; }
+.login-box h1 { margin: 0 0 6px; }
+.login-box label, .form-grid label, .prompt-grid label { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
+.login-box input, input, textarea, select { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; background: white; color: var(--text); }
+.login-box form { display: grid; gap: 14px; }
+.alert, .result { margin: 12px 0; padding: 10px; border-radius: 6px; background: #eef6ef; }
+.error { background: #fee4e2; color: var(--danger); }
+
+.app-shell { min-height: 100vh; display: grid; grid-template-columns: 230px 1fr; }
+.sidebar { background: #102019; color: white; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+.sidebar h1 { font-size: 20px; margin: 0 0 16px; }
+.nav, .logout { width: 100%; text-align: left; background: transparent; border: 1px solid transparent; }
+.nav.active, .nav:hover, .logout:hover { background: rgba(255,255,255,.12); }
+.logout { margin-top: 20px; }
+.content { padding: 24px; min-width: 0; }
+.view { display: none; }
+.view.active { display: block; }
+h2 { margin: 0 0 18px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.section-head input { max-width: 340px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+.stat strong { display: block; font-size: 28px; margin-top: 6px; }
+.table-wrap { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; min-width: 760px; }
+th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 10px; vertical-align: top; }
+th { background: #f0f3f5; font-size: 13px; color: var(--muted); }
+td .mini-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.detail-panel { margin-top: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+.hidden { display: none; }
+.detail-grid { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; gap: 16px; align-items: start; }
+.chat-box { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: #fafafa; }
+.msg { margin-bottom: 10px; padding: 8px; border-radius: 6px; background: white; border: 1px solid var(--line); }
+.msg.out { background: #eef6ef; }
+.msg small { display: block; color: var(--muted); margin-bottom: 4px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+.prompt-grid { display: grid; gap: 14px; }
+textarea { min-height: 130px; resize: vertical; font-family: Consolas, monospace; }
+.memory-editor { min-height: 260px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+.note { color: var(--muted); }
+.pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #edf2f7; font-size: 12px; }
+
+@media (max-width: 760px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+  .content { padding: 16px; }
+  .detail-grid { grid-template-columns: 1fr; }
+}

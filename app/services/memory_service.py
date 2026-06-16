@@ -1,179 +1,165 @@
 import json
-import logging
-from collections import OrderedDict
-from ..extensions import db
-from ..models import ContactMemory, Message
-from .chat_identity import chat_id_candidates
-from .ollama_service import ollama_service
-from .settings_service import get_settings
 
-logger = logging.getLogger(__name__)
+from ..db import execute, get_db, get_setting, query_all, query_one
+from ..models import normalize_memory
+from . import ollama_service
+from .log_service import log_event
 
 
-def serialize_memory(item):
-    return {
-        "id": item.id,
-        "contact_id": item.contact_id,
-        "category": item.category,
-        "content": item.content,
-        "confidence": item.confidence,
-        "source_message_id": item.source_message_id,
-        "pinned": item.pinned,
-        "created_at": item.created_at.isoformat() if item.created_at else None,
-        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-    }
-
-
-def get_memories_for_contact(contact_id):
-    return ContactMemory.query.filter_by(contact_id=contact_id).order_by(ContactMemory.pinned.desc(), ContactMemory.updated_at.desc()).all()
-
-
-def build_memory_block(contact):
-    parts = []
-    if contact.memory_summary:
-        parts.append(f"Ringkasan kontak:\n{contact.memory_summary.strip()}")
-
-    memories = get_memories_for_contact(contact.id)
-    if memories:
-        lines = [f"- [{item.category}] {item.content}" for item in memories[:8]]
-        parts.append("Fakta & preferensi penting:\n" + "\n".join(lines))
-
-    if contact.notes:
-        parts.append(f"Catatan admin:\n{contact.notes.strip()}")
-
-    return "\n\n".join(part for part in parts if part.strip())
-
-
-def _history_lines(contact, limit=24):
-    candidate_ids = chat_id_candidates(contact.chat_id)
-    rows = (
-        Message.query.filter(Message.chat_id.in_(candidate_ids))
-        .order_by(Message.created_at.desc())
-        .limit(limit * 2)
-        .all()
-    )
-    unique = []
-    seen = set()
-    for item in rows:
-        key = item.waha_message_id or f"{item.chat_id}:{item.timestamp}:{item.body}"
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(item)
-        if len(unique) >= limit:
-            break
-    unique.reverse()
-    return [
-        f"{'Admin' if item.from_me else (item.sender_name or item.sender_id or 'User')}: {(item.body or '').strip()}"
-        for item in unique
-        if (item.body or "").strip()
-    ]
-
-
-def _fallback_extract(contact):
-    text = "\n".join(_history_lines(contact, limit=30))
-    lowered = text.lower()
-    suggestions = OrderedDict()
-
-    suggestions["profile"] = (
-        "Kontak ini adalah chat grup, utamakan konteks dan hindari balasan impulsif."
-        if contact.type == "group"
-        else "Kontak ini adalah chat pribadi, utamakan nada personal, natural, dan relevan."
-    )
-    if contact.type == "private":
-        suggestions["tone"] = "Gunakan balasan hangat, sederhana, dan tidak terasa seperti bot."
-    if contact.priority_level == "vip":
-        suggestions["preference"] = "Kontak ini prioritas VIP, utamakan respons hangat, cepat, dan penuh perhatian."
-    if contact.ai_style_override:
-        suggestions["style_override"] = f"Ikuti gaya khusus kontak ini: {contact.ai_style_override.strip()[:220]}"
-    if contact.notes:
-        suggestions["notes"] = f"Perhatikan catatan admin ini: {contact.notes.strip()[:220]}"
-    if "sayang" in lowered or "ayang" in lowered:
-        suggestions["relationship"] = "Kontak ini kemungkinan dekat secara personal; balasan sebaiknya hangat, lembut, dan akrab."
-    if "terima kasih" in lowered or "makasih" in lowered:
-        suggestions["tone"] = "Kontak ini cocok dijawab dengan nada sopan, hangat, dan tidak kaku."
-    if "?" in text:
-        suggestions["behavior"] = "Jika pesan tidak jelas, lebih baik klarifikasi singkat daripada mengarang jawaban."
-
-    return [
-        {"category": key, "content": value, "confidence": "medium"}
-        for key, value in suggestions.items()
-    ]
-
-
-def extract_memories(contact):
-    settings = get_settings()
-    lines = _history_lines(contact, limit=30)
-    if not lines:
-        return []
-
-    prompt = f"""Kamu mengekstrak memory kontak untuk AI WhatsApp.
-
-Tugas:
-- Ambil hanya informasi stabil dan berguna untuk balasan berikutnya.
-- Fokus pada: relasi, gaya bahasa yang disukai, preferensi sapaan, emosi dominan, topik sensitif, dan hal yang sebaiknya dihindari.
-- Jangan mengarang fakta.
-- Jangan menyimpan detail sesaat yang tidak stabil.
-- Jawab HANYA dalam JSON array.
-
-Format JSON:
-[
-  {{"category":"profile|preference|warning|relationship|tone","content":"...","confidence":"low|medium|high"}}
-]
-
-Riwayat chat:
-{chr(10).join(lines)}
-"""
+def _settings_int(key, default):
     try:
-        raw = ollama_service.generate(
-            prompt,
-            settings["ollama_model"],
-            settings["ollama_temperature"],
-            False,
-            settings["ollama_base_url"],
-        )
-        start = raw.find("[")
-        end = raw.rfind("]")
-        if start == -1 or end == -1 or end < start:
-            raise ValueError("Ollama tidak mengembalikan JSON array memory")
-        parsed = json.loads(raw[start:end + 1])
-        cleaned = []
-        for item in parsed:
-            if not isinstance(item, dict):
-                continue
-            content = (item.get("content") or "").strip()
-            if not content:
-                continue
-            cleaned.append({
-                "category": (item.get("category") or "profile").strip()[:30],
-                "content": content[:500],
-                "confidence": (item.get("confidence") or "medium").strip()[:20],
-            })
-        if cleaned:
-            return cleaned[:8]
-    except Exception as exc:
-        logger.warning("Memory extraction fallback for contact_id=%s error=%s", contact.id, exc)
-    return _fallback_extract(contact)
+        return int(get_setting(key, str(default)))
+    except ValueError:
+        return default
 
 
-def refresh_contact_memory(contact):
-    extracted = extract_memories(contact)
-    if not extracted:
-        extracted = _fallback_extract(contact)
+def get_new_messages_for_memory(contact_id):
+    contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+    if not contact:
+        return []
+    return query_all(
+        """
+        SELECT * FROM messages
+        WHERE contact_id = ? AND id > ?
+        ORDER BY id ASC
+        """,
+        (contact_id, contact["last_memory_message_id"]),
+    )
 
-    ContactMemory.query.filter_by(contact_id=contact.id, pinned=False).delete()
-    for item in extracted:
-        db.session.add(
-            ContactMemory(
-                contact_id=contact.id,
-                category=item["category"],
-                content=item["content"],
-                confidence=item["confidence"],
-                pinned=False,
-            )
-        )
 
-    grouped = [f"- [{item['category']}] {item['content']}" for item in extracted]
-    contact.memory_summary = "\n".join(grouped)
-    db.session.commit()
-    return get_memories_for_contact(contact.id)
+def get_all_messages_for_memory(contact_id):
+    return query_all(
+        "SELECT * FROM messages WHERE contact_id = ? ORDER BY id ASC",
+        (contact_id,),
+    )
+
+
+def should_auto_generate_memory(contact_id):
+    contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+    if not contact:
+        return False
+    if get_setting("memory_auto_generate", "true") != "true":
+        return False
+    if contact["memory_auto_generate_enabled"] != 1:
+        return False
+    if get_setting("memory_generate_mode", "manual_auto") == "manual_only":
+        return False
+    interval = contact["memory_generate_interval"] or _settings_int("memory_generate_interval", 20)
+    return contact["new_message_count_since_memory"] >= interval
+
+
+def _format_messages(messages):
+    lines = []
+    for row in messages:
+        speaker = "User" if row["direction"] == "in" else "Assistant"
+        lines.append(f"[{row['id']}] {speaker}: {row['message']}")
+    return "\n".join(lines)
+
+
+def extract_memory_candidate(messages):
+    prompt = f"{get_setting('prompt_memory_extractor')}\n\nChat:\n{_format_messages(messages)}"
+    model = get_setting("extractor_model", "wa-memory-extractor")
+    temp = get_setting("extractor_temperature", "0.1")
+    return normalize_memory(ollama_service.generate_json(model, prompt, temp))
+
+
+def merge_memory(old_memory, new_memory):
+    prompt = (
+        f"{get_setting('prompt_memory_merger')}\n\n"
+        f"Memory lama:\n{json.dumps(normalize_memory(old_memory), ensure_ascii=False)}\n\n"
+        f"Memory baru:\n{json.dumps(normalize_memory(new_memory), ensure_ascii=False)}"
+    )
+    model = get_setting("merger_model", "wa-memory-merger")
+    temp = get_setting("merger_temperature", "0.1")
+    return normalize_memory(ollama_service.generate_json(model, prompt, temp))
+
+
+def save_memory(contact_id, memory_json, source="manual_edit"):
+    normalized = normalize_memory(memory_json)
+    execute(
+        """
+        INSERT INTO memories (contact_id, memory_json, source, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(contact_id) DO UPDATE SET
+            memory_json = excluded.memory_json,
+            source = excluded.source,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (contact_id, json.dumps(normalized, ensure_ascii=False), source),
+    )
+    return normalized
+
+
+def reset_memory(contact_id):
+    db = get_db()
+    db.execute("DELETE FROM memories WHERE contact_id = ?", (contact_id,))
+    db.execute("DELETE FROM memory_candidates WHERE contact_id = ?", (contact_id,))
+    db.execute(
+        """
+        UPDATE contacts
+        SET last_memory_message_id = 0,
+            new_message_count_since_memory = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (contact_id,),
+    )
+    db.execute("UPDATE messages SET used_for_memory = 0 WHERE contact_id = ?", (contact_id,))
+    db.commit()
+
+
+def update_memory_checkpoint(contact_id, last_message_id):
+    db = get_db()
+    db.execute(
+        """
+        UPDATE contacts
+        SET last_memory_message_id = ?,
+            new_message_count_since_memory = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (last_message_id, contact_id),
+    )
+    db.execute(
+        "UPDATE messages SET used_for_memory = 1 WHERE contact_id = ? AND id <= ?",
+        (contact_id, last_message_id),
+    )
+    db.commit()
+
+
+def _generate(contact_id, messages, source_mode, update_checkpoint=True):
+    if not messages:
+        raise ValueError("Tidak ada pesan untuk generate memory.")
+    from_id = messages[0]["id"]
+    to_id = messages[-1]["id"]
+    candidate = extract_memory_candidate(messages)
+    old = query_one("SELECT memory_json FROM memories WHERE contact_id = ?", (contact_id,))
+    old_memory = json.loads(old["memory_json"]) if old else {}
+    final_memory = merge_memory(old_memory, candidate) if old else candidate
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO memory_candidates
+        (contact_id, source_mode, from_message_id, to_message_id, memory_json, confidence)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (contact_id, source_mode, from_id, to_id, json.dumps(candidate, ensure_ascii=False), 0.8),
+    )
+    db.commit()
+    save_memory(contact_id, final_memory, source_mode)
+    if update_checkpoint:
+        update_memory_checkpoint(contact_id, to_id)
+    log_event("INFO", "Memory generated", {"contact_id": contact_id, "source": source_mode, "to_id": to_id})
+    return final_memory
+
+
+def generate_memory_all(contact_id):
+    return _generate(contact_id, get_all_messages_for_memory(contact_id), "manual_all", True)
+
+
+def generate_memory_new(contact_id):
+    return _generate(contact_id, get_new_messages_for_memory(contact_id), "manual_new", True)
+
+
+def generate_memory_auto_incremental(contact_id):
+    return _generate(contact_id, get_new_messages_for_memory(contact_id), "auto_incremental", True)

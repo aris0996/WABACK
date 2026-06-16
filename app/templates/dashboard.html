@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+{% block body %}
+<div class="app-shell">
+  <aside class="sidebar">
+    <h1>WA AI Memory</h1>
+    <button class="nav active" data-view="overview">Overview</button>
+    <button class="nav" data-view="contacts">Contacts</button>
+    <button class="nav" data-view="settings">Settings</button>
+    <button class="nav" data-view="prompts">Prompt Editor</button>
+    <button class="nav" data-view="logs">Logs</button>
+    <form method="post" action="/logout"><button class="logout">Logout</button></form>
+  </aside>
+  <main class="content">
+    <section id="view-overview" class="view active">
+      <h2>Overview</h2>
+      <div id="overview-cards" class="stats-grid"></div>
+    </section>
+
+    <section id="view-contacts" class="view">
+      <div class="section-head">
+        <h2>Contacts</h2>
+        <input id="contact-search" placeholder="Cari nomor atau nama">
+      </div>
+      <div class="table-wrap"><table id="contacts-table"></table></div>
+      <div id="contact-detail" class="detail-panel hidden"></div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <h2>Settings</h2>
+      <form id="settings-form" class="form-grid"></form>
+      <div class="actions">
+        <button id="save-settings" type="button">Simpan Konfigurasi</button>
+        <button id="test-waha" type="button">Test WAHA</button>
+        <button id="test-ollama" type="button">Test Ollama</button>
+      </div>
+      <div id="settings-result" class="result"></div>
+    </section>
+
+    <section id="view-prompts" class="view">
+      <h2>Prompt Editor</h2>
+      <p class="note">Personality utama AI diatur melalui Ollama Modelfile. Prompt di dashboard hanya untuk konteks tambahan saat runtime.</p>
+      <form id="prompts-form" class="prompt-grid"></form>
+      <button id="save-prompts" type="button">Simpan Prompt</button>
+      <div id="prompts-result" class="result"></div>
+    </section>
+
+    <section id="view-logs" class="view">
+      <div class="section-head">
+        <h2>Logs</h2>
+        <button id="refresh-logs" type="button">Refresh</button>
+      </div>
+      <div class="table-wrap"><table id="logs-table"></table></div>
+    </section>
+  </main>
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}
