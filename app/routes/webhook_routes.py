@@ -217,27 +217,58 @@ def _reply_debug_context(contact, wa_number, reason):
 
 def _run_auto_reply(app, contact_id, wa_number, message, incoming_message_id):
     with app.app_context():
+        started_at = time.monotonic()
         contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
         can_reply, reply_reason = _can_reply(contact, wa_number)
         if not can_reply:
             log_event("INFO", "WAHA auto reply skipped", _reply_debug_context(contact, wa_number, reply_reason))
+            _run_auto_memory_if_needed(contact_id)
             return
         try:
             delay = float(get_setting("reply_delay_seconds", "0") or 0)
             if delay > 0:
                 time.sleep(min(delay, 10))
+            ai_started_at = time.monotonic()
             reply = chatbot_service.generate_reply(contact_id, message)
+            ai_ms = int((time.monotonic() - ai_started_at) * 1000)
             if not reply:
-                log_event("WARNING", "WAHA auto reply empty", {"contact_id": contact_id, "wa_number": wa_number})
+                log_event("WARNING", "WAHA auto reply empty", {"contact_id": contact_id, "wa_number": wa_number, "ai_ms": ai_ms})
+                _run_auto_memory_if_needed(contact_id)
                 return
+            send_started_at = time.monotonic()
             waha_service.send_message(wa_number, reply)
+            send_ms = int((time.monotonic() - send_started_at) * 1000)
             execute(
                 "INSERT INTO messages (contact_id, direction, message, raw_payload) VALUES (?, 'out', ?, ?)",
                 (contact_id, reply, json.dumps({"source": "ai", "reply_to": incoming_message_id}, ensure_ascii=False)),
             )
-            log_event("INFO", "WAHA auto reply sent", {"contact_id": contact_id, "wa_number": wa_number})
+            log_event(
+                "INFO",
+                "WAHA auto reply sent",
+                {
+                    "contact_id": contact_id,
+                    "wa_number": wa_number,
+                    "ai_ms": ai_ms,
+                    "send_ms": send_ms,
+                    "total_ms": int((time.monotonic() - started_at) * 1000),
+                },
+            )
+            _run_auto_memory_if_needed(contact_id)
         except Exception as exc:
-            log_event("ERROR", "Auto reply failed", {"contact_id": contact_id, "error": str(exc)})
+            log_event(
+                "ERROR",
+                "Auto reply failed",
+                {"contact_id": contact_id, "error": str(exc), "total_ms": int((time.monotonic() - started_at) * 1000)},
+            )
+
+
+def _run_auto_memory_if_needed(contact_id):
+    try:
+        if memory_service.should_auto_generate_memory(contact_id):
+            log_event("INFO", "Auto memory generation queued after reply", {"contact_id": contact_id})
+            memory_service.generate_memory_auto_incremental(contact_id)
+    except Exception as exc:
+        log_event("ERROR", "Auto memory generation failed", {"contact_id": contact_id, "error": str(exc)})
 
 
 @webhook_bp.post("/webhook/waha")
@@ -324,11 +355,5 @@ def waha_webhook():
         daemon=True,
     )
     thread.start()
-
-    try:
-        if memory_service.should_auto_generate_memory(contact["id"]):
-            memory_service.generate_memory_auto_incremental(contact["id"])
-    except Exception as exc:
-        log_event("ERROR", "Auto memory generation failed", {"contact_id": contact["id"], "error": str(exc)})
 
     return jsonify({"ok": True, "reply_queued": True})
