@@ -260,6 +260,27 @@ def save_contact_settings(contact_id):
     return jsonify({"ok": True})
 
 
+@api_bp.get("/contacts/<int:contact_id>/reply-debug")
+@login_required
+def contact_reply_debug(contact_id):
+    contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+    if not contact:
+        return jsonify({"ok": False, "error": "Contact not found"}), 404
+    settings = get_settings()
+    number = contact["wa_number"]
+    blocklist = {normalize_wa_number(item.strip()) for item in settings.get("blocklist_numbers", "").splitlines() if item.strip()}
+    allowlist = {normalize_wa_number(item.strip()) for item in settings.get("allowlist_numbers", "").splitlines() if item.strip()}
+    checks = {
+        "waha_enabled": settings.get("waha_enabled", "true") == "true",
+        "global_auto_reply": settings.get("global_auto_reply", "true") == "true",
+        "contact_auto_reply": bool(contact["auto_reply_enabled"]),
+        "contact_ai_allowed": not bool(contact["ai_blocked"]),
+        "not_in_blocklist": number not in blocklist,
+        "allowlist_ok": settings.get("allowlist_mode", "false") != "true" or number in allowlist,
+    }
+    return jsonify({"ok": True, "checks": checks, "can_reply": all(checks.values())})
+
+
 @api_bp.post("/contacts/<int:contact_id>/sync-waha-history")
 @login_required
 def sync_waha_history(contact_id):

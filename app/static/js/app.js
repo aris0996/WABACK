@@ -270,9 +270,18 @@ async function openContact(id) {
     <div class="contact-tab" data-tab="debug">
       <div class="panel inset">
         <h4>Debug Kontak</h4>
+        <button class="secondary" onclick="loadReplyDebug(${id})">Cek Status Auto Reply</button>
+        <pre id="reply-debug-result" class="code-box small"></pre>
         <pre class="code-box">${esc(pretty({ contact: c, counts }))}</pre>
       </div>
     </div>`;
+}
+
+async function loadReplyDebug(id) {
+  const box = $('#reply-debug-result');
+  if (box) box.textContent = 'Cek status auto reply...';
+  const data = await guarded(() => api(`/api/contacts/${id}/reply-debug`));
+  if (box) box.textContent = pretty(data);
 }
 
 function closeContactDrawer() {

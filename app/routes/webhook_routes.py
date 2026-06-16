@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 
 from flask import Blueprint, current_app, jsonify, request
@@ -24,7 +25,7 @@ def _extract_message(payload):
     event = payload.get("event") or payload.get("type") or ""
     if event and event not in ("message", "message.any"):
         return None, None, None
-    if data.get("fromMe") or data.get("from_me"):
+    if _is_true(data.get("fromMe")) or _is_true(data.get("from_me")):
         return None, None, None
     raw_data = data.get("_data") if isinstance(data.get("_data"), dict) else {}
     chat_id = (
@@ -34,13 +35,36 @@ def _extract_message(payload):
         or data.get("remoteJid")
         or raw_data.get("from")
         or raw_data.get("remoteJid")
-        or raw_data.get("id", {}).get("remote")
+        or _nested_id_value(raw_data.get("id"))
+        or _nested_id_value(data.get("id"))
     )
-    body = data.get("body") or data.get("text") or data.get("caption") or data.get("message") or raw_data.get("body") or raw_data.get("caption") or ""
+    body = (
+        data.get("body")
+        or data.get("text")
+        or data.get("caption")
+        or data.get("message")
+        or data.get("messageBody")
+        or raw_data.get("body")
+        or raw_data.get("caption")
+        or raw_data.get("text")
+        or ""
+    )
     if isinstance(body, dict):
-        body = body.get("text") or body.get("body") or ""
+        body = body.get("text") or body.get("body") or body.get("conversation") or ""
     name = data.get("pushName") or data.get("notifyName") or data.get("senderName") or raw_data.get("notifyName") or ""
     return normalize_wa_number(chat_id), str(body).strip(), name
+
+
+def _nested_id_value(value):
+    if isinstance(value, dict):
+        return value.get("remote") or value.get("_serialized") or value.get("id") or value.get("user")
+    return value
+
+
+def _is_true(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ("true", "1", "yes")
 
 
 def _webhook_token_valid():
@@ -96,6 +120,31 @@ def _can_reply(contact, wa_number):
     if get_setting("allowlist_mode", "false") == "true" and wa_number not in _list_setting("allowlist_numbers"):
         return False, "allowlist_mode_number_not_allowed"
     return True, "allowed"
+
+
+def _run_auto_reply(app, contact_id, wa_number, message, incoming_message_id):
+    with app.app_context():
+        contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+        can_reply, reply_reason = _can_reply(contact, wa_number)
+        if not can_reply:
+            log_event("INFO", "WAHA auto reply skipped", {"contact_id": contact_id, "reason": reply_reason})
+            return
+        try:
+            delay = float(get_setting("reply_delay_seconds", "0") or 0)
+            if delay > 0:
+                time.sleep(min(delay, 10))
+            reply = chatbot_service.generate_reply(contact_id, message)
+            if not reply:
+                log_event("WARNING", "WAHA auto reply empty", {"contact_id": contact_id, "wa_number": wa_number})
+                return
+            waha_service.send_message(wa_number, reply)
+            execute(
+                "INSERT INTO messages (contact_id, direction, message, raw_payload) VALUES (?, 'out', ?, ?)",
+                (contact_id, reply, json.dumps({"source": "ai", "reply_to": incoming_message_id}, ensure_ascii=False)),
+            )
+            log_event("INFO", "WAHA auto reply sent", {"contact_id": contact_id, "wa_number": wa_number})
+        except Exception as exc:
+            log_event("ERROR", "Auto reply failed", {"contact_id": contact_id, "error": str(exc)})
 
 
 @webhook_bp.post("/webhook/waha")
@@ -159,25 +208,13 @@ def waha_webhook():
     db.commit()
     log_event("INFO", "WAHA inbound message saved", {"contact_id": contact["id"], "wa_number": wa_number, "message_id": cur.lastrowid})
 
-    reply = None
-    can_reply, reply_reason = _can_reply(contact, wa_number)
-    if can_reply:
-        try:
-            delay = float(get_setting("reply_delay_seconds", "0") or 0)
-            if delay > 0:
-                time.sleep(min(delay, 10))
-            reply = chatbot_service.generate_reply(contact["id"], message)
-            if reply:
-                waha_service.send_message(wa_number, reply)
-                execute(
-                    "INSERT INTO messages (contact_id, direction, message, raw_payload) VALUES (?, 'out', ?, ?)",
-                    (contact["id"], reply, json.dumps({"source": "ai", "reply_to": cur.lastrowid}, ensure_ascii=False)),
-                )
-                log_event("INFO", "WAHA auto reply sent", {"contact_id": contact["id"], "wa_number": wa_number})
-        except Exception as exc:
-            log_event("ERROR", "Auto reply failed", {"contact_id": contact["id"], "error": str(exc)})
-    else:
-        log_event("INFO", "WAHA auto reply skipped", {"contact_id": contact["id"], "reason": reply_reason})
+    app = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_run_auto_reply,
+        args=(app, contact["id"], wa_number, message, cur.lastrowid),
+        daemon=True,
+    )
+    thread.start()
 
     try:
         if memory_service.should_auto_generate_memory(contact["id"]):
@@ -185,4 +222,4 @@ def waha_webhook():
     except Exception as exc:
         log_event("ERROR", "Auto memory generation failed", {"contact_id": contact["id"], "error": str(exc)})
 
-    return jsonify({"ok": True, "replied": bool(reply)})
+    return jsonify({"ok": True, "reply_queued": True})
