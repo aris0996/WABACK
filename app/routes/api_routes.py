@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from ..db import execute, get_db, get_settings, query_all, query_one, set_setting
 from ..models import normalize_memory
-from ..security import login_required, require_json, normalize_wa_number, validate_wa_number
+from ..security import login_required, require_json, normalize_wa_number, parse_wa_number_list, validate_wa_number
 from ..services import memory_job_service, memory_service, ollama_service, waha_service
 from ..services.log_service import log_event
 from ..services.update_service import get_git_status
@@ -290,8 +290,8 @@ def contact_reply_debug(contact_id):
         return jsonify({"ok": False, "error": "Contact not found"}), 404
     settings = get_settings()
     number = contact["wa_number"]
-    blocklist = {normalize_wa_number(item.strip()) for item in settings.get("blocklist_numbers", "").splitlines() if item.strip()}
-    allowlist = {normalize_wa_number(item.strip()) for item in settings.get("allowlist_numbers", "").splitlines() if item.strip()}
+    blocklist = parse_wa_number_list(settings.get("blocklist_numbers", ""))
+    allowlist = parse_wa_number_list(settings.get("allowlist_numbers", ""))
     related_allowlist = _contact_related_to_allowlist(contact, number, allowlist)
     auto_reply_ok = bool(contact["auto_reply_enabled"]) or related_allowlist
     checks = {

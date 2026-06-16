@@ -5,7 +5,7 @@ import time
 from flask import Blueprint, current_app, jsonify, request
 
 from ..db import execute, get_db, get_setting, query_one
-from ..security import normalize_wa_number, validate_wa_number, webhook_rate_limited
+from ..security import normalize_wa_number, parse_wa_number_list, validate_wa_number, webhook_rate_limited
 from ..services import chatbot_service, memory_service, waha_service
 from ..services.log_service import log_event, log_event_throttled
 
@@ -17,7 +17,7 @@ def _truth(value):
 
 
 def _list_setting(key):
-    return {normalize_wa_number(item.strip()) for item in get_setting(key, "").splitlines() if item.strip()}
+    return parse_wa_number_list(get_setting(key, ""))
 
 
 def _contact_related_to_allowlist(contact, wa_number, allowlist):
@@ -196,12 +196,31 @@ def _can_reply(contact, wa_number):
     return True, "allowed"
 
 
+def _reply_debug_context(contact, wa_number, reason):
+    allowlist = _list_setting("allowlist_numbers")
+    return {
+        "contact_id": contact["id"],
+        "wa_number": wa_number,
+        "contact_number": contact["wa_number"],
+        "display_name": contact["display_name"],
+        "reason": reason,
+        "waha_enabled": get_setting("waha_enabled", "true"),
+        "global_auto_reply": get_setting("global_auto_reply", "true"),
+        "contact_auto_reply": bool(contact["auto_reply_enabled"]),
+        "contact_ai_blocked": bool(contact["ai_blocked"]),
+        "allowlist_mode": get_setting("allowlist_mode", "false"),
+        "allowlist_count": len(allowlist),
+        "allowlist_exact_match": wa_number in allowlist or contact["wa_number"] in allowlist,
+        "allowlist_related_match": _contact_related_to_allowlist(contact, wa_number, allowlist),
+    }
+
+
 def _run_auto_reply(app, contact_id, wa_number, message, incoming_message_id):
     with app.app_context():
         contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
         can_reply, reply_reason = _can_reply(contact, wa_number)
         if not can_reply:
-            log_event("INFO", "WAHA auto reply skipped", {"contact_id": contact_id, "reason": reply_reason})
+            log_event("INFO", "WAHA auto reply skipped", _reply_debug_context(contact, wa_number, reply_reason))
             return
         try:
             delay = float(get_setting("reply_delay_seconds", "0") or 0)

@@ -7,6 +7,7 @@ from flask import jsonify, redirect, request, session, url_for
 
 WA_NUMBER_RE = re.compile(r"^\+?[0-9]{7,20}$")
 WA_SUFFIX_RE = re.compile(r"@(c\.us|s\.whatsapp\.net|lid)$")
+NUMBER_LIST_SPLIT_RE = re.compile(r"[\s,;]+")
 _webhook_hits = {}
 
 
@@ -31,6 +32,15 @@ def validate_wa_number(number):
 
 def normalize_wa_number(number):
     return WA_SUFFIX_RE.sub("", str(number or "").strip())
+
+
+def parse_wa_number_list(value):
+    numbers = set()
+    for item in NUMBER_LIST_SPLIT_RE.split(str(value or "")):
+        normalized = normalize_wa_number(item)
+        if normalized:
+            numbers.add(normalized)
+    return numbers
 
 
 def require_json():
