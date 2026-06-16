@@ -44,6 +44,8 @@ def _extract_message(payload):
 
 
 def _webhook_token_valid():
+    if not current_app.config["WAHA_WEBHOOK_REQUIRE_TOKEN"]:
+        return True
     expected = current_app.config["WEBHOOK_TOKEN"]
     if not expected:
         return True
@@ -84,16 +86,16 @@ def _get_or_create_contact(wa_number, display_name):
 
 def _can_reply(contact, wa_number):
     if get_setting("waha_enabled", "true") != "true":
-        return False
+        return False, "waha_disabled"
     if get_setting("global_auto_reply", "true") != "true":
-        return False
+        return False, "global_auto_reply_off"
     if contact["ai_blocked"] or not contact["auto_reply_enabled"]:
-        return False
+        return False, "contact_ai_blocked_or_auto_reply_off"
     if wa_number in _list_setting("blocklist_numbers"):
-        return False
+        return False, "number_in_blocklist"
     if get_setting("allowlist_mode", "false") == "true" and wa_number not in _list_setting("allowlist_numbers"):
-        return False
-    return True
+        return False, "allowlist_mode_number_not_allowed"
+    return True, "allowed"
 
 
 @webhook_bp.post("/webhook/waha")
@@ -116,6 +118,13 @@ def waha_webhook():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "Invalid JSON"}), 400
+    log_event_throttled(
+        "INFO",
+        "WAHA webhook received",
+        {"event": payload.get("event") or payload.get("type"), "keys": sorted(payload.keys())},
+        key="waha-webhook-received",
+        window_seconds=60,
+    )
     wa_number, message, display_name = _extract_message(payload)
     if not validate_wa_number(wa_number) or not message:
         log_event_throttled(
@@ -148,9 +157,11 @@ def waha_webhook():
         (contact["id"],),
     )
     db.commit()
+    log_event("INFO", "WAHA inbound message saved", {"contact_id": contact["id"], "wa_number": wa_number, "message_id": cur.lastrowid})
 
     reply = None
-    if _can_reply(contact, wa_number):
+    can_reply, reply_reason = _can_reply(contact, wa_number)
+    if can_reply:
         try:
             delay = float(get_setting("reply_delay_seconds", "0") or 0)
             if delay > 0:
@@ -162,8 +173,11 @@ def waha_webhook():
                     "INSERT INTO messages (contact_id, direction, message, raw_payload) VALUES (?, 'out', ?, ?)",
                     (contact["id"], reply, json.dumps({"source": "ai", "reply_to": cur.lastrowid}, ensure_ascii=False)),
                 )
+                log_event("INFO", "WAHA auto reply sent", {"contact_id": contact["id"], "wa_number": wa_number})
         except Exception as exc:
             log_event("ERROR", "Auto reply failed", {"contact_id": contact["id"], "error": str(exc)})
+    else:
+        log_event("INFO", "WAHA auto reply skipped", {"contact_id": contact["id"], "reason": reply_reason})
 
     try:
         if memory_service.should_auto_generate_memory(contact["id"]):

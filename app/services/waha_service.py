@@ -88,7 +88,7 @@ def _candidate_chat_ids(value):
         ):
             if key in value:
                 yield value[key]
-        for key in ("chat", "contact", "sender", "recipient", "lastMessage"):
+        for key in ("_chat", "chat", "contact", "sender", "recipient", "lastMessage"):
             nested = value.get(key)
             if isinstance(nested, (dict, str)):
                 yield from _candidate_chat_ids(nested)
@@ -147,15 +147,14 @@ def fetch_chats(limit=200, offset=0):
     raise RuntimeError(errors)
 
 
-def sync_contacts_from_waha(limit=200):
-    fetched = fetch_chats(limit=limit)
+def _sync_contact_items(items):
     inserted = 0
     updated = 0
     skipped = 0
     skipped_reasons = {"invalid_number": 0, "non_object": 0}
     sample_keys = []
     db = get_db()
-    for chat in fetched["items"]:
+    for chat in items:
         if not isinstance(chat, dict):
             skipped += 1
             skipped_reasons["non_object"] += 1
@@ -195,13 +194,51 @@ def sync_contacts_from_waha(limit=200):
             inserted += 1
     db.commit()
     return {
-        "source_url": fetched["url"],
-        "received": len(fetched["items"]),
+        "received": len(items),
         "inserted": inserted,
         "updated": updated,
         "skipped": skipped,
         "skipped_reasons": skipped_reasons,
         "sample_keys": sample_keys,
+    }
+
+
+def sync_contacts_from_waha(limit=200, max_total=2000):
+    offset = 0
+    pages = 0
+    source_urls = []
+    totals = {
+        "received": 0,
+        "inserted": 0,
+        "updated": 0,
+        "skipped": 0,
+        "skipped_reasons": {"invalid_number": 0, "non_object": 0},
+        "sample_keys": [],
+    }
+    while offset < max_total:
+        fetched = fetch_chats(limit=limit, offset=offset)
+        items = fetched["items"]
+        pages += 1
+        source_urls.append(fetched["url"])
+        result = _sync_contact_items(items)
+        totals["received"] += result["received"]
+        totals["inserted"] += result["inserted"]
+        totals["updated"] += result["updated"]
+        totals["skipped"] += result["skipped"]
+        totals["skipped_reasons"]["invalid_number"] += result["skipped_reasons"]["invalid_number"]
+        totals["skipped_reasons"]["non_object"] += result["skipped_reasons"]["non_object"]
+        for keys in result["sample_keys"]:
+            if len(totals["sample_keys"]) < 5:
+                totals["sample_keys"].append(keys)
+        if len(items) < limit:
+            break
+        offset += limit
+    return {
+        "source_url": source_urls[0] if source_urls else "",
+        "pages": pages,
+        "page_size": limit,
+        "max_total": max_total,
+        **totals,
     }
 
 
@@ -242,6 +279,34 @@ def _message_created_at(item):
     return None
 
 
+def _is_true(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ("true", "1", "yes")
+
+
+def _message_direction(item):
+    if not isinstance(item, dict):
+        return "in"
+    raw_data = item.get("_data") if isinstance(item.get("_data"), dict) else {}
+    for key in ("fromMe", "from_me", "from_me"):
+        if key in item and _is_true(item.get(key)):
+            return "out"
+        if key in raw_data and _is_true(raw_data.get(key)):
+            return "out"
+    msg_id = item.get("id") or raw_data.get("id") or ""
+    if isinstance(msg_id, dict):
+        if _is_true(msg_id.get("fromMe")):
+            return "out"
+        msg_id = msg_id.get("_serialized") or msg_id.get("id") or ""
+    msg_id = str(msg_id)
+    if msg_id.startswith("true_") or msg_id.startswith("true-"):
+        return "out"
+    if msg_id.startswith("false_") or msg_id.startswith("false-"):
+        return "in"
+    return "in"
+
+
 def fetch_chat_messages(wa_number, limit=300, offset=0):
     session = get_setting("waha_session", "default")
     chat_id = quote(f"{wa_number}@c.us", safe="")
@@ -264,6 +329,8 @@ def sync_contact_messages_from_waha(contact_id, limit=300):
     fetched = fetch_chat_messages(contact["wa_number"], limit=limit)
     inserted = 0
     skipped = 0
+    inbound = 0
+    outbound = 0
     db = get_db()
     for item in fetched["items"]:
         if not isinstance(item, dict):
@@ -274,7 +341,11 @@ def sync_contact_messages_from_waha(contact_id, limit=300):
         if not text:
             skipped += 1
             continue
-        direction = "out" if item.get("fromMe") or item.get("from_me") else "in"
+        direction = _message_direction(item)
+        if direction == "out":
+            outbound += 1
+        else:
+            inbound += 1
         created_at = _message_created_at(item)
         params = [
             contact_id,
@@ -304,4 +375,6 @@ def sync_contact_messages_from_waha(contact_id, limit=300):
         "received": len(fetched["items"]),
         "inserted": inserted,
         "skipped": skipped,
+        "inbound_seen": inbound,
+        "outbound_seen": outbound,
     }

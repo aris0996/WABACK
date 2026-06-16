@@ -1,11 +1,13 @@
 import json
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from ..db import execute, get_db, get_settings, query_all, query_one, set_setting
 from ..models import normalize_memory
 from ..security import login_required, require_json, normalize_wa_number, validate_wa_number
-from ..services import memory_service, ollama_service, waha_service
+from ..services import memory_job_service, memory_service, ollama_service, waha_service
 from ..services.log_service import log_event
 from ..services.update_service import get_git_status
 
@@ -14,6 +16,18 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 def _row(row):
     return dict(row) if row else None
+
+
+def _with_local_time(row):
+    item = _row(row)
+    if not item or not item.get("created_at"):
+        return item
+    try:
+        dt = datetime.strptime(item["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        item["created_at_local"] = dt.astimezone(ZoneInfo(current_app.config["APP_TIMEZONE"])).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        item["created_at_local"] = item["created_at"]
+    return item
 
 
 def _truth(value):
@@ -46,6 +60,14 @@ def contacts():
     search = f"%{request.args.get('q', '').strip()}%"
     limit = max(1, min(int(request.args.get("limit", 100)), 300))
     offset = max(0, int(request.args.get("offset", 0)))
+    total = query_one(
+        """
+        SELECT COUNT(*) AS n
+        FROM contacts
+        WHERE wa_number LIKE ? OR COALESCE(display_name, '') LIKE ?
+        """,
+        (search, search),
+    )["n"]
     rows = query_all(
         """
         SELECT c.*,
@@ -63,7 +85,7 @@ def contacts():
         """,
         (search, search, limit, offset),
     )
-    return jsonify({"ok": True, "contacts": [_row(row) for row in rows]})
+    return jsonify({"ok": True, "contacts": [_row(row) for row in rows], "total": total, "limit": limit, "offset": offset})
 
 
 @api_bp.post("/contacts")
@@ -103,8 +125,10 @@ def create_contact():
 def sync_waha_contacts():
     data = request.get_json(silent=True) if request.is_json else {}
     try:
-        limit = max(1, min(int((data or {}).get("limit", 200)), 1000))
-        result = waha_service.sync_contacts_from_waha(limit=limit)
+        settings = get_settings()
+        limit = max(1, min(int((data or {}).get("limit", settings.get("waha_sync_page_size", "300"))), 1000))
+        max_total = max(limit, min(int((data or {}).get("max_total", settings.get("waha_sync_max_contacts", "2000"))), 10000))
+        result = waha_service.sync_contacts_from_waha(limit=limit, max_total=max_total)
         log_event("INFO", "Contacts synced from WAHA", result)
         return jsonify({"ok": True, "result": result})
     except Exception as exc:
@@ -176,12 +200,10 @@ def unblock_ai(contact_id):
 @login_required
 def generate_all(contact_id):
     try:
-        limit = int(get_settings().get("waha_history_sync_limit", "300") or 300)
-        sync_result = waha_service.sync_contact_messages_from_waha(contact_id, limit=limit)
-        log_event("INFO", "WAHA history synced before generate all", {"contact_id": contact_id, **sync_result})
-        return jsonify({"ok": True, "memory": memory_service.generate_memory_all(contact_id)})
+        job_id = memory_job_service.create_memory_job(contact_id, "generate_all")
+        return jsonify({"ok": True, "job_id": job_id})
     except Exception as exc:
-        log_event("ERROR", "Generate all memory failed", {"contact_id": contact_id, "error": str(exc)})
+        log_event("ERROR", "Queue generate all memory failed", {"contact_id": contact_id, "error": str(exc)})
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
@@ -189,9 +211,10 @@ def generate_all(contact_id):
 @login_required
 def generate_new(contact_id):
     try:
-        return jsonify({"ok": True, "memory": memory_service.generate_memory_new(contact_id)})
+        job_id = memory_job_service.create_memory_job(contact_id, "generate_new")
+        return jsonify({"ok": True, "job_id": job_id})
     except Exception as exc:
-        log_event("ERROR", "Generate new memory failed", {"contact_id": contact_id, "error": str(exc)})
+        log_event("ERROR", "Queue generate new memory failed", {"contact_id": contact_id, "error": str(exc)})
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
@@ -318,7 +341,7 @@ def logs():
     sql += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
     rows = query_all(sql, tuple(params))
-    return jsonify({"ok": True, "logs": [_row(row) for row in rows]})
+    return jsonify({"ok": True, "logs": [_with_local_time(row) for row in rows]})
 
 
 @api_bp.get("/overview")
@@ -341,3 +364,12 @@ def update_status():
         return jsonify({"ok": True, "status": get_git_status()})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@api_bp.get("/memory-jobs/<int:job_id>")
+@login_required
+def memory_job_status(job_id):
+    job = memory_job_service.get_memory_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Memory job not found"}), 404
+    return jsonify({"ok": True, "job": job})

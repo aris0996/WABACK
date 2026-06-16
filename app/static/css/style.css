@@ -77,13 +77,25 @@ tr:hover td { background: #fcfdfd; }
 td .mini-actions, .mini-actions { display: flex; gap: 7px; flex-wrap: wrap; }
 
 .detail-panel { margin-top: 18px; }
+.drawer .detail-panel { margin-top: 0; box-shadow: none; border: 0; border-radius: 0; }
 .hidden { display: none !important; }
+.drawer { position: fixed; inset: 0; z-index: 30; }
+.drawer-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, .42); }
+.drawer-panel { position: absolute; inset: 0 0 0 auto; width: min(980px, 96vw); background: var(--panel); overflow: auto; box-shadow: -18px 0 40px rgba(15, 23, 42, .18); }
 .detail-title { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 16px; }
 .detail-title h3 { margin: 0; font-size: 20px; }
 .detail-title p { margin: 4px 0 0; color: var(--muted); }
 .detail-stats { margin-bottom: 16px; }
 .detail-grid { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; gap: 16px; align-items: start; margin-bottom: 16px; }
 hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+.tabs { display: flex; gap: 7px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin: 0 -16px 16px; padding: 0 16px 12px; }
+.tab { background: #eef2f6; color: var(--text); }
+.tab.active { background: var(--primary); color: white; }
+.contact-tab { display: none; }
+.contact-tab.active { display: block; }
+.job-status { border: 1px solid var(--line); border-radius: 9px; padding: 12px; background: white; margin-bottom: 12px; }
+.progress { height: 9px; background: #e4e7ec; border-radius: 999px; overflow: hidden; margin: 9px 0; }
+.progress span { display: block; height: 100%; background: var(--primary); transition: width .2s ease; }
 .chat-box { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: white; }
 .msg { margin-bottom: 10px; padding: 9px 10px; border-radius: 8px; background: var(--soft); border: 1px solid var(--line); }
 .msg.out { background: var(--primary-soft); }
@@ -98,6 +110,7 @@ textarea { min-height: 130px; resize: vertical; font-family: Consolas, monospace
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
 .inline-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, 1fr) auto; gap: 10px; align-items: end; }
 .inline-form.narrow { grid-template-columns: minmax(180px, 260px) auto; }
+.pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; color: var(--muted); }
 
 .status-stack { display: flex; gap: 6px; flex-wrap: wrap; }
 .status { display: inline-block; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 800; }

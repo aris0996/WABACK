@@ -1,5 +1,14 @@
 const pageRoot = document.querySelector('.app-shell');
-const state = { config: {}, contacts: [], activeContact: null, view: pageRoot?.dataset.page || 'overview' };
+const state = {
+  config: {},
+  contacts: [],
+  activeContact: null,
+  view: pageRoot?.dataset.page || 'overview',
+  contactLimit: 50,
+  contactOffset: 0,
+  contactTotal: 0,
+  activeJobTimer: null,
+};
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -88,13 +97,15 @@ async function testService(kind, target = '#settings-result') {
 
 async function loadContacts() {
   const q = encodeURIComponent($('#contact-search').value || '');
-  const data = await api(`/api/contacts?q=${q}&limit=100`);
+  const data = await api(`/api/contacts?q=${q}&limit=${state.contactLimit}&offset=${state.contactOffset}`);
   state.contacts = data.contacts;
+  state.contactTotal = data.total || 0;
   if (!data.contacts.length) {
     $('#contacts-table').innerHTML = `
       <tbody><tr><td class="empty-state">
         Belum ada kontak. Tambahkan nomor manual di atas, atau pastikan webhook WAHA mengarah ke <code>${esc(window.location.origin)}/webhook/waha</code>.
       </td></tr></tbody>`;
+    renderContactPagination();
     return;
   }
   $('#contacts-table').innerHTML = `
@@ -115,6 +126,25 @@ async function loadContacts() {
           <button class="${c.ai_blocked ? 'secondary' : 'danger'}" onclick="postAndReload('/api/contacts/${c.id}/${c.ai_blocked ? 'unblock-ai' : 'block-ai'}')">${c.ai_blocked ? 'Unblock' : 'Block'}</button>
         </div></td>
       </tr>`).join('')}</tbody>`;
+  renderContactPagination();
+}
+
+function renderContactPagination() {
+  const box = $('#contacts-pagination');
+  if (!box) return;
+  const start = state.contactTotal ? state.contactOffset + 1 : 0;
+  const end = Math.min(state.contactOffset + state.contactLimit, state.contactTotal);
+  box.innerHTML = `
+    <span>Menampilkan ${start}-${end} dari ${state.contactTotal} kontak</span>
+    <div class="mini-actions">
+      <button class="secondary" ${state.contactOffset <= 0 ? 'disabled' : ''} onclick="changeContactPage(-1)">Prev</button>
+      <button class="secondary" ${end >= state.contactTotal ? 'disabled' : ''} onclick="changeContactPage(1)">Next</button>
+    </div>`;
+}
+
+async function changeContactPage(direction) {
+  state.contactOffset = Math.max(0, state.contactOffset + direction * state.contactLimit);
+  await guarded(loadContacts);
 }
 
 async function addContact() {
@@ -138,7 +168,7 @@ async function syncWahaContacts() {
   }
   const data = await guarded(() => api('/api/contacts/sync-waha', {
     method: 'POST',
-    body: JSON.stringify({ limit: 300 }),
+    body: JSON.stringify({ limit: 300, max_total: 3000 }),
   }), 'Sync kontak WAHA selesai');
   if (box) box.textContent = pretty(data.result);
   await loadContacts();
@@ -156,7 +186,7 @@ async function openContact(id) {
   const c = data.contact;
   const counts = data.counts || {};
   const memory = data.memory ? JSON.parse(data.memory.memory_json) : {};
-  $('#contact-detail').classList.remove('hidden');
+  $('#contact-drawer')?.classList.remove('hidden');
   $('#contact-detail').innerHTML = `
     <div class="detail-title">
       <div>
@@ -167,16 +197,27 @@ async function openContact(id) {
         <button class="secondary" onclick="postAndReload('/api/contacts/${c.id}/toggle-auto-reply')">${c.auto_reply_enabled ? 'Matikan Auto Reply' : 'Aktifkan Auto Reply'}</button>
         <button class="${c.ai_blocked ? 'secondary' : 'danger'}" onclick="postAndReload('/api/contacts/${c.id}/${c.ai_blocked ? 'unblock-ai' : 'block-ai'}')">${c.ai_blocked ? 'Unblock AI' : 'Block AI'}</button>
       </div>
+      <button class="secondary" onclick="closeContactDrawer()">Tutup</button>
     </div>
-    <div class="stats-grid detail-stats">
+    <div class="tabs">
+      <button class="tab active" onclick="showContactTab('overview')">Overview</button>
+      <button class="tab" onclick="showContactTab('waha')">WAHA History</button>
+      <button class="tab" onclick="showContactTab('ai')">AI & Auto Reply</button>
+      <button class="tab" onclick="showContactTab('memory')">Memory</button>
+      <button class="tab" onclick="showContactTab('messages')">Messages</button>
+      <button class="tab" onclick="showContactTab('debug')">Debug</button>
+    </div>
+    <div class="contact-tab active" data-tab="overview">
+      <div class="stats-grid detail-stats">
       <div class="stat"><span>Pesan Lokal</span><strong>${counts.total_messages || 0}</strong><small>In ${counts.inbound_messages || 0} · Out ${counts.outbound_messages || 0}</small></div>
       <div class="stat"><span>Auto Reply</span><strong>${c.auto_reply_enabled ? 'On' : 'Off'}</strong><small>Status balasan untuk kontak ini</small></div>
       <div class="stat"><span>AI Block</span><strong>${c.ai_blocked ? 'Blocked' : 'Allowed'}</strong><small>Kontrol AI per kontak</small></div>
       <div class="stat"><span>Memory Baru</span><strong>${c.new_message_count_since_memory}/${c.memory_generate_interval}</strong><small>Checkpoint #${c.last_memory_message_id}</small></div>
+      </div>
     </div>
-    <div class="detail-grid">
+    <div class="contact-tab" data-tab="ai">
       <div class="panel inset">
-        <h4>1. Pengaturan Kontak</h4>
+        <h4>Pengaturan AI & Auto Reply</h4>
         <label>Nama display<input id="detail-name" value="${esc(c.display_name || '')}"></label>
         <label>Auto generate memory
           <select id="detail-auto-memory"><option value="true" ${c.memory_auto_generate_enabled ? 'selected' : ''}>On</option><option value="false" ${!c.memory_auto_generate_enabled ? 'selected' : ''}>Off</option></select>
@@ -185,18 +226,30 @@ async function openContact(id) {
         <div class="actions">
           <button onclick="saveContactSettings(${id})">Simpan kontak</button>
         </div>
-        <hr>
-        <h4>2. WAHA & Pesan</h4>
+      </div>
+    </div>
+    <div class="contact-tab" data-tab="waha">
+      <div class="panel inset">
+        <h4>WAHA History</h4>
         <p class="note">Sync history mengambil chat dari WAHA lalu menyimpannya ke database lokal tanpa duplikat.</p>
         <div class="actions">
           <button onclick="syncWahaHistory(${id})">Sync History WAHA</button>
         </div>
+        <pre id="history-sync-result" class="code-box small hidden"></pre>
+      </div>
+    </div>
+    <div class="contact-tab" data-tab="messages">
+      <div class="panel inset">
+        <h4>Kirim Pesan</h4>
         <label>Kirim pesan manual<textarea id="manual-message" placeholder="Tulis pesan untuk dikirim via WAHA"></textarea></label>
         <button onclick="sendManual('${esc(c.wa_number)}')">Kirim via WAHA</button>
       </div>
+    </div>
+    <div class="contact-tab" data-tab="memory">
       <div class="panel inset">
-        <h4>3. Memory</h4>
+        <h4>Memory</h4>
         <p class="note">Generate semua akan sync history WAHA terlebih dahulu, lalu membuat memory dari semua pesan lokal.</p>
+        <div id="memory-job-status" class="job-status hidden"></div>
         <div class="actions">
           <button onclick="memoryAction(${id}, 'generate-all')">Sync WAHA + Generate Semua</button>
           <button class="secondary" onclick="memoryAction(${id}, 'generate-new')">Generate Pesan Baru</button>
@@ -206,21 +259,52 @@ async function openContact(id) {
         <button onclick="saveMemory(${id})">Simpan memory manual</button>
       </div>
     </div>
-    <div class="panel inset">
+    <div class="contact-tab active" data-tab="overview">
+      <div class="panel inset">
       <h4>Riwayat Chat</h4>
       <div class="chat-box">
         ${data.messages.length ? data.messages.map(m => `<div class="msg ${m.direction}"><small>#${m.id} ${esc(m.direction)} - ${esc(m.created_at)}</small>${esc(m.message)}</div>`).join('') : '<div class="empty-state">Belum ada riwayat chat.</div>'}
       </div>
+      </div>
+    </div>
+    <div class="contact-tab" data-tab="debug">
+      <div class="panel inset">
+        <h4>Debug Kontak</h4>
+        <pre class="code-box">${esc(pretty({ contact: c, counts }))}</pre>
+      </div>
     </div>`;
 }
 
+function closeContactDrawer() {
+  $('#contact-drawer')?.classList.add('hidden');
+  state.activeContact = null;
+  if (state.activeJobTimer) clearInterval(state.activeJobTimer);
+}
+
+function showContactTab(tab) {
+  document.querySelectorAll('.tab').forEach(btn => btn.classList.toggle('active', btn.textContent.toLowerCase().includes(tab.split('-')[0])));
+  document.querySelectorAll('.contact-tab').forEach(panel => panel.classList.toggle('active', panel.dataset.tab === tab));
+}
+
 async function syncWahaHistory(id) {
+  const box = $('#history-sync-result');
+  if (box) {
+    box.classList.remove('hidden');
+    box.textContent = 'Sync history WAHA...';
+  }
   const result = await guarded(() => api(`/api/contacts/${id}/sync-waha-history`, {
     method: 'POST',
     body: JSON.stringify({ limit: 300 }),
   }), 'History WAHA tersinkron');
+  if (box) box.textContent = pretty(result.result);
   toast(`History: ${result.result.inserted} baru, ${result.result.skipped} dilewati`);
   await openContact(id);
+  showContactTab('waha');
+  const newBox = $('#history-sync-result');
+  if (newBox) {
+    newBox.classList.remove('hidden');
+    newBox.textContent = pretty(result.result);
+  }
   await loadContacts();
 }
 
@@ -239,9 +323,46 @@ async function saveContactSettings(id) {
 
 async function memoryAction(id, action) {
   if (action === 'reset' && !confirm('Reset memory kontak ini?')) return;
-  await guarded(() => api(`/api/contacts/${id}/memory/${action}`, { method: 'POST', body: '{}' }), 'Operasi memory selesai');
-  await openContact(id);
-  await loadContacts();
+  const data = await guarded(() => api(`/api/contacts/${id}/memory/${action}`, { method: 'POST', body: '{}' }), action === 'reset' ? 'Memory direset' : 'Job memory dibuat');
+  if (data.job_id) {
+    showContactTab('memory');
+    pollMemoryJob(data.job_id, id);
+  } else {
+    await openContact(id);
+    await loadContacts();
+  }
+}
+
+async function pollMemoryJob(jobId, contactId) {
+  const box = $('#memory-job-status');
+  if (!box) return;
+  box.classList.remove('hidden');
+  if (state.activeJobTimer) clearInterval(state.activeJobTimer);
+  const render = (job) => {
+    const pct = job.total ? Math.round((job.progress / job.total) * 100) : 0;
+    box.innerHTML = `
+      <strong>${esc(job.stage)} (${esc(job.status)})</strong>
+      <div class="progress"><span style="width:${Math.max(3, pct)}%"></span></div>
+      <small>${job.progress || 0}/${job.total || 0} batch</small>
+      ${job.error ? `<pre class="code-box small">${esc(job.error)}</pre>` : ''}`;
+  };
+  const tick = async () => {
+    const data = await api(`/api/memory-jobs/${jobId}`);
+    render(data.job);
+    if (['success', 'failed'].includes(data.job.status)) {
+      clearInterval(state.activeJobTimer);
+      state.activeJobTimer = null;
+      if (data.job.status === 'success') {
+        toast('Generate memory selesai');
+        await openContact(contactId);
+        showContactTab('memory');
+      } else {
+        toast('Generate memory gagal', 'error');
+      }
+    }
+  };
+  await guarded(tick);
+  state.activeJobTimer = setInterval(() => guarded(tick), 2000);
 }
 
 async function saveMemory(id) {
@@ -284,6 +405,7 @@ function renderSettings() {
   $('#settings-form').innerHTML = [
     settingsGroup('WAHA', [
       ['waha_base_url', 'WAHA Base URL'], ['waha_session', 'WAHA Session'], ['waha_api_key', 'WAHA API Key'], ['waha_enabled', 'Enable WAHA'],
+      ['waha_sync_page_size', 'WAHA sync page size'], ['waha_sync_max_contacts', 'WAHA max contacts sync'], ['waha_history_sync_limit', 'WAHA history limit per contact'],
     ]),
     settingsGroup('Ollama', [
       ['ollama_base_url', 'Ollama Base URL'], ['chatbot_model', 'Model chatbot'], ['extractor_model', 'Model extractor'], ['merger_model', 'Model merger'],
@@ -294,7 +416,7 @@ function renderSettings() {
       ['allowlist_mode', 'Allowlist mode'], ['blocklist_numbers', 'Blocklist nomor'], ['allowlist_numbers', 'Allowlist nomor'],
     ]),
     settingsGroup('Memory', [
-      ['memory_auto_generate', 'Memory auto generate global'], ['memory_generate_interval', 'Default memory interval'], ['memory_generate_mode', 'Mode generate'],
+      ['memory_auto_generate', 'Memory auto generate global'], ['memory_generate_interval', 'Default memory interval'], ['memory_generate_mode', 'Mode generate'], ['memory_batch_size', 'Memory batch size'],
     ]),
   ].join('');
 }
@@ -318,10 +440,11 @@ async function saveForm(formSel, resultSel) {
 
 async function loadLogs() {
   const filter = ($('#log-filter')?.value || '').toLowerCase().trim();
-  const data = await api(`/api/logs?limit=150&q=${encodeURIComponent(filter)}`);
+  const level = $('#log-level')?.value || '';
+  const data = await api(`/api/logs?limit=150&q=${encodeURIComponent(filter)}&level=${encodeURIComponent(level)}`);
   const logs = data.logs;
   $('#logs-table').innerHTML = `<thead><tr><th>Waktu</th><th>Level</th><th>Pesan</th><th>Context</th></tr></thead><tbody>${
-    logs.length ? logs.map(l => `<tr><td>${esc(l.created_at)}</td><td><span class="log-level ${esc(l.level.toLowerCase())}">${esc(l.level)}</span></td><td>${esc(l.message)}</td><td><pre>${esc(l.context_json || '')}</pre></td></tr>`).join('') : '<tr><td class="empty-state" colspan="4">Tidak ada log yang cocok.</td></tr>'
+    logs.length ? logs.map(l => `<tr><td>${esc(l.created_at_local || l.created_at)}</td><td><span class="log-level ${esc(l.level.toLowerCase())}">${esc(l.level)}</span></td><td>${esc(l.message)}</td><td><pre>${esc(l.context_json || '')}</pre></td></tr>`).join('') : '<tr><td class="empty-state" colspan="4">Tidak ada log yang cocok.</td></tr>'
   }</tbody>`;
 }
 
@@ -338,7 +461,10 @@ function on(selector, event, handler) {
 }
 
 on('#refresh-current', 'click', () => guarded(refreshCurrent));
-on('#contact-search', 'input', () => guarded(loadContacts));
+on('#contact-search', 'input', () => {
+  state.contactOffset = 0;
+  guarded(loadContacts);
+});
 on('#add-contact', 'click', addContact);
 on('#sync-waha-contacts', 'click', syncWahaContacts);
 on('#save-settings', 'click', () => saveForm('#settings-form', '#settings-result'));
@@ -351,6 +477,7 @@ on('#diag-test-waha', 'click', () => testService('waha', '#diag-service-result')
 on('#diag-test-ollama', 'click', () => testService('ollama', '#diag-service-result'));
 on('#diag-update-status', 'click', () => guarded(loadDiagnostics, 'Status Git diperbarui'));
 on('#refresh-logs', 'click', () => guarded(loadLogs));
+on('#log-level', 'change', () => guarded(loadLogs));
 on('#log-filter', 'input', () => {
   clearTimeout(logTimer);
   logTimer = setTimeout(() => guarded(loadLogs), 250);

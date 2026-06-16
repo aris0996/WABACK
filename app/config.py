@@ -11,6 +11,7 @@ class Config:
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
     WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "")
+    WAHA_WEBHOOK_REQUIRE_TOKEN = os.getenv("WAHA_WEBHOOK_REQUIRE_TOKEN", "false").lower() == "true"
     GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     AUTO_UPDATE_API_KEY = os.getenv("AUTO_UPDATE_API_KEY", "")
     AUTO_UPDATE_BRANCH = os.getenv("AUTO_UPDATE_BRANCH", "")
@@ -18,6 +19,7 @@ class Config:
     AUTO_UPDATE_TIMEOUT = int(os.getenv("AUTO_UPDATE_TIMEOUT", "300"))
     AUTO_UPDATE_RESTART_WORKER = os.getenv("AUTO_UPDATE_RESTART_WORKER", "true").lower() == "true"
     LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "14"))
+    APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Makassar")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     PERMANENT_SESSION_LIFETIME = 60 * 60 * 12
@@ -45,6 +47,9 @@ DEFAULT_SETTINGS = {
     "memory_generate_interval": os.getenv("DEFAULT_MEMORY_GENERATE_INTERVAL", "20"),
     "memory_generate_mode": "manual_auto",
     "waha_history_sync_limit": "300",
+    "waha_sync_page_size": "300",
+    "waha_sync_max_contacts": "2000",
+    "memory_batch_size": "50",
     "prompt_chatbot_without_memory": "Jawab pesan WhatsApp berikut secara singkat dan natural.",
     "prompt_chatbot_with_memory": "Gunakan memory sebagai konteks internal. Jangan menyebut memory kepada user.",
     "prompt_memory_extractor": "Ekstrak memory dari chat berikut dan keluarkan JSON valid saja.",

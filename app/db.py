@@ -95,6 +95,12 @@ def _run_migrations(db):
         """
     )
     db.execute("CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id)")
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_memory_jobs_contact_status
+        ON memory_jobs(contact_id, status)
+        """
+    )
 
 
 def get_settings():
@@ -163,6 +169,22 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS memory_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER NOT NULL,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    stage TEXT NOT NULL DEFAULT 'Queued',
+    progress INTEGER NOT NULL DEFAULT 0,
+    total INTEGER NOT NULL DEFAULT 0,
+    result_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT,
+    FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_contacts_wa_number ON contacts(wa_number);
 CREATE INDEX IF NOT EXISTS idx_contacts_updated_at ON contacts(updated_at);
 CREATE INDEX IF NOT EXISTS idx_messages_contact_id_id ON messages(contact_id, id);
@@ -172,4 +194,5 @@ CREATE INDEX IF NOT EXISTS idx_memories_contact_id ON memories(contact_id);
 CREATE INDEX IF NOT EXISTS idx_memory_candidates_contact_id ON memory_candidates(contact_id);
 CREATE INDEX IF NOT EXISTS idx_system_logs_level_created_at ON system_logs(level, created_at);
 CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_jobs_contact_status ON memory_jobs(contact_id, status);
 """

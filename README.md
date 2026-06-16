@@ -100,10 +100,11 @@ POST http://localhost:5000/webhook/waha
 Secara default webhook WAHA bisa tanpa token jika `.env` berisi:
 
 ```env
+WAHA_WEBHOOK_REQUIRE_TOKEN=false
 WEBHOOK_TOKEN=
 ```
 
-Jika ingin mengaktifkan proteksi token, isi `WEBHOOK_TOKEN`, lalu kirim token dengan salah satu cara:
+Jika ingin mengaktifkan proteksi token, set `WAHA_WEBHOOK_REQUIRE_TOKEN=true`, isi `WEBHOOK_TOKEN`, lalu kirim token dengan salah satu cara:
 
 ```text
 X-Webhook-Token: token-webhook-kuat
