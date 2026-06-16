@@ -81,7 +81,7 @@ FROM qwen2.5:3b
 
 Jika ingin model lain, ubah baris `FROM` di setiap file `ollama-models/*.Modelfile`, lalu jalankan ulang `ollama create`.
 
-Di dashboard, buka Settings dan isi `Ollama Base URL`, model chatbot, extractor, dan merger. Dari container Docker, biasanya host Ollama memakai `http://host.docker.internal:11434`.
+Di dashboard, buka Settings dan isi `Ollama Base URL`, model chatbot, extractor, dan merger. Konfigurasi Docker server memakai `network_mode: host`, jadi Ollama di host bisa diakses dari container memakai `http://127.0.0.1:11434`.
 
 ## WAHA
 
@@ -99,7 +99,7 @@ POST http://localhost:5000/webhook/waha
 Header: X-Webhook-Token: token-webhook-kuat
 ```
 
-Jika Flask berjalan di Docker dan WAHA berada di container lain, gunakan hostname/network yang bisa saling diakses.
+Konfigurasi Docker server memakai `network_mode: host`, jadi WAHA di host bisa diakses dari aplikasi memakai `http://127.0.0.1:3000`. Jika WAHA berada di server/container lain, gunakan hostname/network yang bisa saling diakses.
 
 ## GitHub Auto Update
 
@@ -167,9 +167,10 @@ AUTO_UPDATE_COMMAND=docker compose up -d --build
 
 Catatan Docker: endpoint auto update membutuhkan folder kerja yang memiliki `.git` dan binary `git`. Jika aplikasi berjalan di container hasil `COPY . .`, `.git` biasanya tidak ikut masuk image. Untuk auto update paling sederhana, jalankan aplikasi di host repository, atau panggil endpoint update dari service host yang punya akses ke Git dan Docker.
 
-Pada konfigurasi Docker terbaru, `docker-compose.yml` sudah melakukan bind mount:
+Pada konfigurasi Docker terbaru, `docker-compose.yml` memakai host network dan bind mount:
 
 ```yaml
+network_mode: host
 volumes:
   - ./:/app
 ```
@@ -248,9 +249,8 @@ Urutan pengecekan webhook:
 ### Ollama tidak konek
 
 - Pastikan Ollama berjalan: `ollama list`.
-- Dari Docker, gunakan `http://host.docker.internal:11434`.
-- Di Linux, `docker-compose.yml` sudah menambahkan `host.docker.internal:host-gateway`. Jalankan ulang `docker compose up -d --build` setelah pull update.
-- Jika masih timeout, pastikan Ollama listen ke host network, bukan hanya `127.0.0.1` yang tidak bisa diakses container. Coba set environment Ollama host ke `0.0.0.0:11434`.
+- Dari Docker server ini, gunakan `http://127.0.0.1:11434` karena compose memakai `network_mode: host`.
+- Jalankan ulang `docker compose up -d --build` setelah pull update.
 - Pastikan model sudah dibuat dengan `ollama create`.
 
 ### WAHA tidak konek
@@ -258,7 +258,8 @@ Urutan pengecekan webhook:
 - Cek WAHA Base URL dan API key.
 - Klik Test WAHA di dashboard.
 - Pastikan session WAHA aktif.
-- Jika timeout ke `IP:3000`, cek firewall/security group dan pastikan WAHA listen di `0.0.0.0:3000`, bukan hanya localhost.
+- Jika WAHA berjalan di host yang sama, gunakan `http://127.0.0.1:3000`.
+- Jika timeout ke `IP:3000`, cek firewall/security group dan pastikan WAHA listen di alamat yang benar.
 
 ### AI tidak membalas
 
@@ -278,8 +279,8 @@ Urutan pengecekan webhook:
 
 ### Docker tidak bisa akses Ollama host
 
-- Gunakan `DEFAULT_OLLAMA_BASE_URL=http://host.docker.internal:11434`.
-- Di Linux tertentu, tambahkan host gateway di compose jika diperlukan.
+- Gunakan `DEFAULT_OLLAMA_BASE_URL=http://127.0.0.1:11434`.
+- Compose memakai `network_mode: host`, jadi localhost container sama dengan localhost server.
 
 ### Melihat log GitHub webhook
 
