@@ -48,19 +48,67 @@ def test_connection():
 
 
 def _extract_chat_number(chat):
-    chat_id = (
-        chat.get("id")
-        or chat.get("chatId")
-        or chat.get("jid")
-        or chat.get("conversationId")
-        or ""
-    )
-    if isinstance(chat_id, dict):
-        chat_id = chat_id.get("_serialized") or chat_id.get("user") or ""
-    chat_id = str(chat_id)
-    if "@g.us" in chat_id or chat_id == "status@broadcast":
+    for value in _candidate_chat_ids(chat):
+        number = _normalize_chat_id_value(value)
+        if validate_wa_number(number):
+            return number
+    return ""
+
+
+def _candidate_chat_ids(value):
+    if value is None:
+        return
+    if isinstance(value, str):
+        yield value
+        return
+    if isinstance(value, dict):
+        server = str(value.get("server") or "")
+        user = str(value.get("user") or "")
+        if user and server:
+            yield f"{user}@{server}"
+        for key in (
+            "_serialized",
+            "serialized",
+            "chatId",
+            "chat_id",
+            "remoteJid",
+            "jid",
+            "id",
+            "wid",
+            "number",
+            "phone",
+            "from",
+            "to",
+            "participant",
+            "conversationId",
+        ):
+            if key in value:
+                yield value[key]
+        for key in ("chat", "contact", "sender", "recipient", "lastMessage"):
+            nested = value.get(key)
+            if isinstance(nested, (dict, str)):
+                yield from _candidate_chat_ids(nested)
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from _candidate_chat_ids(item)
+
+
+def _normalize_chat_id_value(value):
+    if isinstance(value, dict):
+        for candidate in _candidate_chat_ids(value):
+            normalized = _normalize_chat_id_value(candidate)
+            if validate_wa_number(normalized):
+                return normalized
         return ""
-    return normalize_wa_number(chat_id)
+    text = str(value or "").strip()
+    if not text or text == "status@broadcast" or "@g.us" in text:
+        return ""
+    if "@c.us" in text or "@s.whatsapp.net" in text:
+        return normalize_wa_number(text)
+    if text.isdigit() or (text.startswith("+") and text[1:].isdigit()):
+        return normalize_wa_number(text)
+    return ""
 
 
 def _extract_chat_name(chat):
@@ -100,14 +148,20 @@ def sync_contacts_from_waha(limit=200):
     inserted = 0
     updated = 0
     skipped = 0
+    skipped_reasons = {"invalid_number": 0, "non_object": 0}
+    sample_keys = []
     db = get_db()
     for chat in fetched["items"]:
         if not isinstance(chat, dict):
             skipped += 1
+            skipped_reasons["non_object"] += 1
             continue
+        if len(sample_keys) < 5:
+            sample_keys.append(sorted(chat.keys()))
         number = _extract_chat_number(chat)
         if not validate_wa_number(number):
             skipped += 1
+            skipped_reasons["invalid_number"] += 1
             continue
         name = _extract_chat_name(chat)
         existing = query_one("SELECT id, display_name FROM contacts WHERE wa_number = ?", (number,))
@@ -142,4 +196,6 @@ def sync_contacts_from_waha(limit=200):
         "inserted": inserted,
         "updated": updated,
         "skipped": skipped,
+        "skipped_reasons": skipped_reasons,
+        "sample_keys": sample_keys,
     }

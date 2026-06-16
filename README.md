@@ -125,6 +125,8 @@ Group chat dan `status@broadcast` dilewati karena memory/auto reply dirancang pe
 
 Catatan WAHA: untuk engine NOWEB, fitur mengambil chats/contacts membutuhkan Store aktif di konfigurasi session WAHA. Jika sync menghasilkan kosong atau error feature unavailable, aktifkan NOWEB Store sebelum scan QR/session dipakai.
 
+Jika sync menampilkan `received` besar tetapi `inserted` tetap `0`, lihat hasil `sample_keys` di box sync. Itu berarti format response WAHA berbeda dari parser yang dikenali. Aplikasi akan mencoba membaca nomor dari `id`, `chatId`, `remoteJid`, `jid`, `chat.id`, `contact.id`, dan format object `{user, server}`.
+
 ## GitHub Auto Update
 
 Aplikasi menyediakan endpoint update:
@@ -337,3 +339,9 @@ git status --short
 ```
 
 Jika ada perubahan lokal yang bukan runtime ignored file, commit/stash dulu. Auto-update memakai `git pull --ff-only`, jadi branch server harus bisa fast-forward.
+
+Jika log menampilkan `detected dubious ownership in repository at '/app'`, versi baru otomatis menjalankan:
+
+```bash
+git config --global --add safe.directory /app
+```

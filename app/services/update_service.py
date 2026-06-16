@@ -71,6 +71,9 @@ def schedule_worker_restart(delay_seconds=2):
 
 
 def auto_update():
+    safe_directory = _run(["git", "config", "--global", "--add", "safe.directory", _repo_root()])
+    _ensure_success(safe_directory)
+
     before = _run(["git", "rev-parse", "--short", "HEAD"])
     _ensure_success(before)
 
