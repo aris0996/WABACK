@@ -11,6 +11,11 @@ class Config:
     ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
     WEBHOOK_TOKEN = os.getenv("WEBHOOK_TOKEN", "change-this-webhook-token")
+    GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+    AUTO_UPDATE_API_KEY = os.getenv("AUTO_UPDATE_API_KEY", "")
+    AUTO_UPDATE_BRANCH = os.getenv("AUTO_UPDATE_BRANCH", "")
+    AUTO_UPDATE_COMMAND = os.getenv("AUTO_UPDATE_COMMAND", "")
+    AUTO_UPDATE_TIMEOUT = int(os.getenv("AUTO_UPDATE_TIMEOUT", "300"))
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     PERMANENT_SESSION_LIFETIME = 60 * 60 * 12
