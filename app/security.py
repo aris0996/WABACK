@@ -6,6 +6,7 @@ from flask import jsonify, redirect, request, session, url_for
 
 
 WA_NUMBER_RE = re.compile(r"^\+?[0-9]{7,20}$")
+WA_SUFFIX_RE = re.compile(r"@(c\.us|s\.whatsapp\.net|lid)$")
 _webhook_hits = {}
 
 
@@ -24,12 +25,12 @@ def login_required(fn):
 def validate_wa_number(number):
     if not number:
         return False
-    clean = str(number).replace("@c.us", "").replace("@s.whatsapp.net", "")
+    clean = WA_SUFFIX_RE.sub("", str(number).strip())
     return bool(WA_NUMBER_RE.match(clean))
 
 
 def normalize_wa_number(number):
-    return str(number or "").replace("@c.us", "").replace("@s.whatsapp.net", "").strip()
+    return WA_SUFFIX_RE.sub("", str(number or "").strip())
 
 
 def require_json():

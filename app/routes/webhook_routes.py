@@ -28,15 +28,16 @@ def _extract_message(payload):
     if _is_true(data.get("fromMe")) or _is_true(data.get("from_me")):
         return None, None, None
     raw_data = data.get("_data") if isinstance(data.get("_data"), dict) else {}
-    chat_id = (
+    chat_id = _first_valid_chat_id(
         data.get("from")
-        or data.get("chatId")
-        or data.get("chat_id")
-        or data.get("remoteJid")
-        or raw_data.get("from")
-        or raw_data.get("remoteJid")
-        or _nested_id_value(raw_data.get("id"))
-        or _nested_id_value(data.get("id"))
+        ,
+        data.get("chatId"),
+        data.get("chat_id"),
+        data.get("remoteJid"),
+        raw_data.get("from"),
+        raw_data.get("remoteJid"),
+        _nested_id_value(raw_data.get("id")),
+        _nested_id_value(data.get("id")),
     )
     body = (
         data.get("body")
@@ -50,9 +51,32 @@ def _extract_message(payload):
         or ""
     )
     if isinstance(body, dict):
-        body = body.get("text") or body.get("body") or body.get("conversation") or ""
+        body = (
+            body.get("text")
+            or body.get("body")
+            or body.get("conversation")
+            or (body.get("extendedTextMessage") or {}).get("text")
+            or ""
+        )
+    if not body and isinstance(raw_data.get("message"), dict):
+        raw_message = raw_data["message"]
+        body = raw_message.get("conversation") or (raw_message.get("extendedTextMessage") or {}).get("text") or ""
     name = data.get("pushName") or data.get("notifyName") or data.get("senderName") or raw_data.get("notifyName") or ""
     return normalize_wa_number(chat_id), str(body).strip(), name
+
+
+def _first_valid_chat_id(*values):
+    fallback = ""
+    for value in values:
+        if not value:
+            continue
+        text = str(value)
+        if not fallback:
+            fallback = text
+        normalized = normalize_wa_number(text)
+        if validate_wa_number(normalized):
+            return text
+    return fallback
 
 
 def _nested_id_value(value):
@@ -176,6 +200,7 @@ def waha_webhook():
     )
     wa_number, message, display_name = _extract_message(payload)
     if not validate_wa_number(wa_number) or not message:
+        data = payload.get("payload", payload)
         log_event_throttled(
             "INFO",
             "WAHA webhook ignored",
@@ -183,6 +208,12 @@ def waha_webhook():
                 "event": payload.get("event") or payload.get("type"),
                 "keys": sorted(payload.keys()),
                 "payload_keys": sorted((payload.get("payload") or {}).keys()) if isinstance(payload.get("payload"), dict) else [],
+                "from_raw": str(data.get("from") or "")[:80],
+                "to_raw": str(data.get("to") or "")[:80],
+                "from_me": data.get("fromMe"),
+                "normalized_number": wa_number,
+                "number_valid": validate_wa_number(wa_number),
+                "body_len": len(message or ""),
                 "reason": "not a direct text message",
             },
             key=f"ignored-webhook:{payload.get('event') or payload.get('type')}",
