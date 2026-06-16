@@ -119,7 +119,12 @@ def _get_or_create_contact(wa_number, display_name):
                 (display_name, contact["id"]),
             )
         return query_one("SELECT * FROM contacts WHERE id = ?", (contact["id"],))
-    default_auto = 1 if _truth(get_setting("default_contact_auto_reply", "true")) else 0
+    allowlist = _list_setting("allowlist_numbers")
+    allowlist_mode = get_setting("allowlist_mode", "false") == "true"
+    if allowlist_mode and wa_number not in allowlist:
+        default_auto = 0
+    else:
+        default_auto = 1 if _truth(get_setting("default_contact_auto_reply", "true")) else 0
     interval = int(get_setting("memory_generate_interval", "20") or 20)
     cur = execute(
         """
@@ -141,7 +146,11 @@ def _can_reply(contact, wa_number):
         return False, "contact_ai_blocked_or_auto_reply_off"
     if wa_number in _list_setting("blocklist_numbers"):
         return False, "number_in_blocklist"
-    if get_setting("allowlist_mode", "false") == "true" and wa_number not in _list_setting("allowlist_numbers"):
+    if (
+        get_setting("allowlist_mode", "false") == "true"
+        and wa_number not in _list_setting("allowlist_numbers")
+        and not contact["auto_reply_enabled"]
+    ):
         return False, "allowlist_mode_number_not_allowed"
     return True, "allowed"
 

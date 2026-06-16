@@ -276,9 +276,16 @@ def contact_reply_debug(contact_id):
         "contact_auto_reply": bool(contact["auto_reply_enabled"]),
         "contact_ai_allowed": not bool(contact["ai_blocked"]),
         "not_in_blocklist": number not in blocklist,
-        "allowlist_ok": settings.get("allowlist_mode", "false") != "true" or number in allowlist,
+        "allowlist_ok": settings.get("allowlist_mode", "false") != "true" or number in allowlist or bool(contact["auto_reply_enabled"]),
     }
-    return jsonify({"ok": True, "checks": checks, "can_reply": all(checks.values())})
+    return jsonify(
+        {
+            "ok": True,
+            "checks": checks,
+            "can_reply": all(checks.values()),
+            "note": "Jika allowlist mode aktif, kontak dengan Auto Reply On tetap dianggap diizinkan.",
+        }
+    )
 
 
 @api_bp.post("/contacts/<int:contact_id>/sync-waha-history")
