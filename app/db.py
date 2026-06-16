@@ -21,6 +21,9 @@ def get_db():
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
         g.db = conn
     return g.db
 
@@ -37,6 +40,8 @@ def init_db(app):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(db_path)
         db.row_factory = sqlite3.Row
+        db.execute("PRAGMA journal_mode = WAL")
+        db.execute("PRAGMA synchronous = NORMAL")
         db.executescript(SCHEMA)
         for key, value in DEFAULT_SETTINGS.items():
             db.execute(
@@ -141,4 +146,14 @@ CREATE TABLE IF NOT EXISTS system_logs (
     context_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_contacts_wa_number ON contacts(wa_number);
+CREATE INDEX IF NOT EXISTS idx_contacts_updated_at ON contacts(updated_at);
+CREATE INDEX IF NOT EXISTS idx_messages_contact_id_id ON messages(contact_id, id);
+CREATE INDEX IF NOT EXISTS idx_messages_contact_id_created_at ON messages(contact_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_used_for_memory ON messages(used_for_memory);
+CREATE INDEX IF NOT EXISTS idx_memories_contact_id ON memories(contact_id);
+CREATE INDEX IF NOT EXISTS idx_memory_candidates_contact_id ON memory_candidates(contact_id);
+CREATE INDEX IF NOT EXISTS idx_system_logs_level_created_at ON system_logs(level, created_at);
+CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at);
 """

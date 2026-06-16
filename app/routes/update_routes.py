@@ -64,7 +64,15 @@ def github_update():
             "status": get_git_status(),
         }
         log_event("ERROR", "GitHub auto update failed", context)
-        return jsonify({"ok": False, "error": str(exc)}), 409
+        return jsonify(
+            {
+                "ok": False,
+                "received": True,
+                "updated": False,
+                "error": str(exc),
+                "message": "Webhook valid, but auto update failed. Check dashboard Logs with filter 'github'.",
+            }
+        ), 200
 
 
 @update_bp.get("/github/status")

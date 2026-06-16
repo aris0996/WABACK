@@ -4,6 +4,7 @@ const state = { config: {}, contacts: [], activeContact: null, view: pageRoot?.d
 const $ = (sel) => document.querySelector(sel);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pretty = (value) => JSON.stringify(value, null, 2);
+let logTimer = null;
 
 function toast(message, type = 'ok') {
   const box = $('#toast');
@@ -87,7 +88,7 @@ async function testService(kind, target = '#settings-result') {
 
 async function loadContacts() {
   const q = encodeURIComponent($('#contact-search').value || '');
-  const data = await api(`/api/contacts?q=${q}`);
+  const data = await api(`/api/contacts?q=${q}&limit=100`);
   state.contacts = data.contacts;
   if (!data.contacts.length) {
     $('#contacts-table').innerHTML = `
@@ -97,16 +98,16 @@ async function loadContacts() {
     return;
   }
   $('#contacts-table').innerHTML = `
-    <thead><tr><th>Nomor</th><th>Nama</th><th>Auto Reply</th><th>AI Blocked</th><th>Memory</th><th>Pesan Baru</th><th>Interval</th><th>Terakhir Chat</th><th>Aksi</th></tr></thead>
+    <thead><tr><th>Kontak</th><th>Status</th><th>Memory</th><th>Pesan Baru</th><th>Terakhir Chat</th><th>Aksi</th></tr></thead>
     <tbody>${data.contacts.map(c => `
       <tr>
-        <td><strong>${esc(c.wa_number)}</strong></td>
-        <td>${esc(c.display_name || '-')}</td>
-        <td>${c.auto_reply_enabled ? '<span class="status on">On</span>' : '<span class="status off">Off</span>'}</td>
-        <td>${c.ai_blocked ? '<span class="status bad">Blocked</span>' : '<span class="status on">Allowed</span>'}</td>
-        <td>${c.has_memory ? 'Ada' : 'Belum'}</td>
-        <td>${c.new_message_count_since_memory}</td>
-        <td>${c.memory_generate_interval}</td>
+        <td><strong>${esc(c.wa_number)}</strong><small>${esc(c.display_name || 'Tanpa nama')}</small></td>
+        <td><div class="status-stack">
+          ${c.auto_reply_enabled ? '<span class="status on">Auto Reply</span>' : '<span class="status off">Auto Off</span>'}
+          ${c.ai_blocked ? '<span class="status bad">AI Blocked</span>' : '<span class="status on">AI Allowed</span>'}
+        </div></td>
+        <td>${c.has_memory ? '<span class="status on">Ada</span>' : '<span class="status off">Belum</span>'}</td>
+        <td><strong>${c.new_message_count_since_memory}</strong><small>Interval ${c.memory_generate_interval}</small></td>
         <td>${esc(c.last_chat_at || '-')}</td>
         <td><div class="mini-actions">
           <button onclick="openContact(${c.id})">Detail</button>
@@ -295,9 +296,9 @@ async function saveForm(formSel, resultSel) {
 }
 
 async function loadLogs() {
-  const data = await api('/api/logs');
   const filter = ($('#log-filter')?.value || '').toLowerCase().trim();
-  const logs = filter ? data.logs.filter(l => `${l.level} ${l.message} ${l.context_json}`.toLowerCase().includes(filter)) : data.logs;
+  const data = await api(`/api/logs?limit=150&q=${encodeURIComponent(filter)}`);
+  const logs = data.logs;
   $('#logs-table').innerHTML = `<thead><tr><th>Waktu</th><th>Level</th><th>Pesan</th><th>Context</th></tr></thead><tbody>${
     logs.length ? logs.map(l => `<tr><td>${esc(l.created_at)}</td><td><span class="log-level ${esc(l.level.toLowerCase())}">${esc(l.level)}</span></td><td>${esc(l.message)}</td><td><pre>${esc(l.context_json || '')}</pre></td></tr>`).join('') : '<tr><td class="empty-state" colspan="4">Tidak ada log yang cocok.</td></tr>'
   }</tbody>`;
@@ -329,6 +330,9 @@ on('#diag-test-waha', 'click', () => testService('waha', '#diag-service-result')
 on('#diag-test-ollama', 'click', () => testService('ollama', '#diag-service-result'));
 on('#diag-update-status', 'click', () => guarded(loadDiagnostics, 'Status Git diperbarui'));
 on('#refresh-logs', 'click', () => guarded(loadLogs));
-on('#log-filter', 'input', () => guarded(loadLogs));
+on('#log-filter', 'input', () => {
+  clearTimeout(logTimer);
+  logTimer = setTimeout(() => guarded(loadLogs), 250);
+});
 
 loadConfig().then(refreshCurrent).catch(err => toast(err.message, 'error'));

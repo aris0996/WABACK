@@ -327,3 +327,13 @@ Untuk cek status Git dari endpoint:
 ```bash
 curl -H "X-Update-Key: isi-api-key" http://IP_SERVER:PORT/webhook/github/status
 ```
+
+Jika GitHub menampilkan `Invalid HTTP Response: 409`, artinya versi lama endpoint menerima webhook tetapi proses auto-update gagal, biasanya karena working tree tidak bersih atau branch diverged. Pada versi baru, kegagalan operasional tetap dicatat di Logs tetapi HTTP response ke GitHub dibuat `200` agar delivery valid dan mudah dibaca dari response JSON.
+
+Penyebab auto-update paling umum:
+
+```bash
+git status --short
+```
+
+Jika ada perubahan lokal yang bukan runtime ignored file, commit/stash dulu. Auto-update memakai `git pull --ff-only`, jadi branch server harus bisa fast-forward.

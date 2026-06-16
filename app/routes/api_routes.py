@@ -44,19 +44,24 @@ def save_config():
 @login_required
 def contacts():
     search = f"%{request.args.get('q', '').strip()}%"
+    limit = max(1, min(int(request.args.get("limit", 100)), 300))
+    offset = max(0, int(request.args.get("offset", 0)))
     rows = query_all(
         """
         SELECT c.*,
                CASE WHEN m.id IS NULL THEN 0 ELSE 1 END AS has_memory,
-               MAX(msg.created_at) AS last_chat_at
+               (
+                   SELECT MAX(created_at)
+                   FROM messages
+                   WHERE contact_id = c.id
+               ) AS last_chat_at
         FROM contacts c
         LEFT JOIN memories m ON m.contact_id = c.id
-        LEFT JOIN messages msg ON msg.contact_id = c.id
         WHERE c.wa_number LIKE ? OR COALESCE(c.display_name, '') LIKE ?
-        GROUP BY c.id
         ORDER BY COALESCE(last_chat_at, c.created_at) DESC
+        LIMIT ? OFFSET ?
         """,
-        (search, search),
+        (search, search, limit, offset),
     )
     return jsonify({"ok": True, "contacts": [_row(row) for row in rows]})
 
@@ -266,7 +271,24 @@ def send_message():
 @api_bp.get("/logs")
 @login_required
 def logs():
-    rows = query_all("SELECT * FROM system_logs ORDER BY id DESC LIMIT 200")
+    limit = max(1, min(int(request.args.get("limit", 100)), 500))
+    q = request.args.get("q", "").strip()
+    level = request.args.get("level", "").strip().upper()
+    params = []
+    where = []
+    if q:
+        where.append("(message LIKE ? OR context_json LIKE ? OR level LIKE ?)")
+        like = f"%{q}%"
+        params.extend([like, like, like])
+    if level:
+        where.append("level = ?")
+        params.append(level)
+    sql = "SELECT * FROM system_logs"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    rows = query_all(sql, tuple(params))
     return jsonify({"ok": True, "logs": [_row(row) for row in rows]})
 
 

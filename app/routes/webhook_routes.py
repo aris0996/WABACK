@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, jsonify, request
 from ..db import execute, get_db, get_setting, query_one
 from ..security import normalize_wa_number, validate_wa_number, webhook_rate_limited
 from ..services import chatbot_service, memory_service, waha_service
-from ..services.log_service import log_event
+from ..services.log_service import log_event, log_event_throttled
 
 webhook_bp = Blueprint("webhook", __name__)
 
@@ -74,7 +74,14 @@ def waha_webhook():
     if webhook_rate_limited():
         return jsonify({"ok": False, "error": "Rate limit exceeded"}), 429
     if request.headers.get("X-Webhook-Token") != current_app.config["WEBHOOK_TOKEN"]:
-        log_event("WARNING", "Webhook rejected: invalid token", {})
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0]
+        log_event_throttled(
+            "WARNING",
+            "Webhook rejected: invalid token",
+            {"ip": ip},
+            key=f"bad-webhook-token:{ip}",
+            window_seconds=60,
+        )
         return jsonify({"ok": False, "error": "Invalid webhook token"}), 401
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
