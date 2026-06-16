@@ -419,6 +419,7 @@ function renderSettings() {
     ]),
     settingsGroup('Ollama', [
       ['ollama_base_url', 'Ollama Base URL'], ['chatbot_model', 'Model chatbot'], ['extractor_model', 'Model extractor'], ['merger_model', 'Model merger'],
+      ['chatbot_num_predict', 'Max token balasan chatbot'], ['memory_num_predict', 'Max token memory'], ['ollama_keep_alive', 'Ollama keep alive'], ['ollama_request_timeout', 'Ollama request timeout'],
       ['chatbot_temperature', 'Temperature chatbot'], ['extractor_temperature', 'Temperature extractor'], ['merger_temperature', 'Temperature merger'],
     ]),
     settingsGroup('Auto Reply', [

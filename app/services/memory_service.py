@@ -60,7 +60,7 @@ def extract_memory_candidate(messages):
     prompt = f"{get_setting('prompt_memory_extractor')}\n\nChat:\n{_format_messages(messages)}"
     model = get_setting("extractor_model", "wa-memory-extractor")
     temp = get_setting("extractor_temperature", "0.1")
-    return normalize_memory(ollama_service.generate_json(model, prompt, temp))
+    return normalize_memory(ollama_service.generate_json(model, prompt, temp, get_setting("memory_num_predict", "700")))
 
 
 def merge_memory(old_memory, new_memory):
@@ -71,7 +71,7 @@ def merge_memory(old_memory, new_memory):
     )
     model = get_setting("merger_model", "wa-memory-merger")
     temp = get_setting("merger_temperature", "0.1")
-    return normalize_memory(ollama_service.generate_json(model, prompt, temp))
+    return normalize_memory(ollama_service.generate_json(model, prompt, temp, get_setting("memory_num_predict", "700")))
 
 
 def save_memory(contact_id, memory_json, source="manual_edit"):

@@ -29,4 +29,5 @@ def generate_reply(contact_id, incoming_message):
         get_setting("chatbot_model", "wa-chatbot"),
         prompt,
         get_setting("chatbot_temperature", "0.3"),
+        num_predict=get_setting("chatbot_num_predict", "180"),
     )

@@ -21,9 +21,9 @@ def _base_url():
     return get_setting("waha_base_url").rstrip("/")
 
 
-def send_message(wa_number, text):
+def send_message(wa_number, text, chat_id=None):
     session = get_setting("waha_session", "default")
-    payload = {"session": session, "chatId": f"{wa_number}@c.us", "text": text}
+    payload = {"session": session, "chatId": chat_id or f"{wa_number}@c.us", "text": text}
     response = requests.post(
         f"{_base_url()}/api/sendText",
         json=payload,

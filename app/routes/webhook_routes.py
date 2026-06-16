@@ -84,7 +84,19 @@ def _extract_message(payload):
         raw_message = raw_data["message"]
         body = raw_message.get("conversation") or (raw_message.get("extendedTextMessage") or {}).get("text") or ""
     name = data.get("pushName") or data.get("notifyName") or data.get("senderName") or raw_data.get("notifyName") or ""
-    return normalize_wa_number(chat_id), str(body).strip(), name
+    return normalize_wa_number(chat_id), str(body).strip(), name, _normalize_reply_chat_id(chat_id)
+
+
+def _normalize_reply_chat_id(chat_id):
+    text = str(chat_id or "").strip()
+    if not text or "@g.us" in text or "@newsletter" in text or text == "status@broadcast":
+        return ""
+    if "@" in text:
+        return text
+    normalized = normalize_wa_number(text)
+    if validate_wa_number(normalized):
+        return f"{normalized}@c.us"
+    return ""
 
 
 def _first_valid_chat_id(*values):
@@ -215,7 +227,7 @@ def _reply_debug_context(contact, wa_number, reason):
     }
 
 
-def _run_auto_reply(app, contact_id, wa_number, message, incoming_message_id):
+def _run_auto_reply(app, contact_id, wa_number, reply_chat_id, message, incoming_message_id):
     with app.app_context():
         started_at = time.monotonic()
         contact = query_one("SELECT * FROM contacts WHERE id = ?", (contact_id,))
@@ -236,7 +248,7 @@ def _run_auto_reply(app, contact_id, wa_number, message, incoming_message_id):
                 _run_auto_memory_if_needed(contact_id)
                 return
             send_started_at = time.monotonic()
-            waha_service.send_message(wa_number, reply)
+            send_result = waha_service.send_message(wa_number, reply, chat_id=reply_chat_id)
             send_ms = int((time.monotonic() - send_started_at) * 1000)
             execute(
                 "INSERT INTO messages (contact_id, direction, message, raw_payload) VALUES (?, 'out', ?, ?)",
@@ -248,6 +260,8 @@ def _run_auto_reply(app, contact_id, wa_number, message, incoming_message_id):
                 {
                     "contact_id": contact_id,
                     "wa_number": wa_number,
+                    "reply_chat_id": reply_chat_id,
+                    "send_result": send_result,
                     "ai_ms": ai_ms,
                     "send_ms": send_ms,
                     "total_ms": int((time.monotonic() - started_at) * 1000),
@@ -298,7 +312,7 @@ def waha_webhook():
         key="waha-webhook-received",
         window_seconds=60,
     )
-    wa_number, message, display_name = _extract_message(payload)
+    wa_number, message, display_name, reply_chat_id = _extract_message(payload)
     log_event(
         "INFO",
         "WAHA webhook parsed",
@@ -308,6 +322,7 @@ def waha_webhook():
             "number_valid": validate_wa_number(wa_number),
             "body_len": len(message or ""),
             "display_name": display_name,
+            "reply_chat_id": reply_chat_id,
         },
     )
     if not validate_wa_number(wa_number) or not message:
@@ -351,7 +366,7 @@ def waha_webhook():
     app = current_app._get_current_object()
     thread = threading.Thread(
         target=_run_auto_reply,
-        args=(app, contact["id"], wa_number, message, cur.lastrowid),
+        args=(app, contact["id"], wa_number, reply_chat_id, message, cur.lastrowid),
         daemon=True,
     )
     thread.start()

@@ -1,5 +1,6 @@
 import json
 import threading
+from requests import Timeout
 
 from flask import current_app
 
@@ -10,9 +11,9 @@ from .log_service import log_event
 
 def _batch_size():
     try:
-        return max(1, int(get_setting("memory_batch_size", "50")))
+        return max(1, int(get_setting("memory_batch_size", "15")))
     except ValueError:
-        return 50
+        return 15
 
 
 def _set_job(job_id, **fields):
@@ -105,7 +106,13 @@ def _run_job(job_id):
 
     for index, batch in enumerate(batches, start=1):
         _set_job(job_id, stage=f"Extracting batch {index}/{len(batches)}", progress=index - 1)
-        candidate = memory_service.extract_memory_candidate(batch)
+        try:
+            candidate = memory_service.extract_memory_candidate(batch)
+        except Timeout as exc:
+            raise Timeout(
+                "Ollama timeout saat extract memory. Coba kecilkan Memory batch size ke 5-10, "
+                "naikkan Ollama request timeout, atau pakai model extractor yang lebih ringan."
+            ) from exc
         from_id = batch[0]["id"]
         to_id = batch[-1]["id"]
         db.execute(
@@ -119,7 +126,13 @@ def _run_job(job_id):
         db.commit()
         if current_memory:
             _set_job(job_id, stage=f"Merging batch {index}/{len(batches)}")
-            current_memory = memory_service.merge_memory(current_memory, candidate)
+            try:
+                current_memory = memory_service.merge_memory(current_memory, candidate)
+            except Timeout as exc:
+                raise Timeout(
+                    "Ollama timeout saat merge memory. Coba kecilkan Memory batch size ke 5-10, "
+                    "naikkan Ollama request timeout, atau pakai model merger yang lebih ringan."
+                ) from exc
         else:
             current_memory = candidate
         _set_job(job_id, progress=index)
