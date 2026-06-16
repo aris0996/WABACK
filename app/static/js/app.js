@@ -49,6 +49,7 @@ async function refreshCurrent() {
   if (state.view === 'settings') renderSettings();
   if (state.view === 'diagnostics') await guarded(loadDiagnostics);
   if (state.view === 'prompts') renderPrompts();
+  if (state.view === 'ai_logs') await guarded(loadAiLogs);
   if (state.view === 'logs') await guarded(loadLogs);
 }
 
@@ -457,6 +458,15 @@ async function loadLogs() {
   }</tbody>`;
 }
 
+async function loadAiLogs() {
+  const filter = ($('#ai-log-filter')?.value || '').trim();
+  const data = await api(`/api/ai-logs?limit=200&q=${encodeURIComponent(filter)}`);
+  const logs = data.logs;
+  $('#ai-logs-table').innerHTML = `<thead><tr><th>Waktu</th><th>Level</th><th>Event</th><th>Context</th></tr></thead><tbody>${
+    logs.length ? logs.map(l => `<tr><td>${esc(l.created_at_local || l.created_at)}</td><td><span class="log-level ${esc(l.level.toLowerCase())}">${esc(l.level)}</span></td><td>${esc(l.message)}</td><td><pre>${esc(l.context_json || '')}</pre></td></tr>`).join('') : '<tr><td class="empty-state" colspan="4">Belum ada AI log yang cocok.</td></tr>'
+  }</tbody>`;
+}
+
 async function loadDiagnostics() {
   const target = $('#diag-update-result');
   if (!target) return;
@@ -487,6 +497,11 @@ on('#diag-test-ollama', 'click', () => testService('ollama', '#diag-service-resu
 on('#diag-update-status', 'click', () => guarded(loadDiagnostics, 'Status Git diperbarui'));
 on('#refresh-logs', 'click', () => guarded(loadLogs));
 on('#log-level', 'change', () => guarded(loadLogs));
+on('#refresh-ai-logs', 'click', () => guarded(loadAiLogs));
+on('#ai-log-filter', 'input', () => {
+  clearTimeout(logTimer);
+  logTimer = setTimeout(() => guarded(loadAiLogs), 250);
+});
 on('#log-filter', 'input', () => {
   clearTimeout(logTimer);
   logTimer = setTimeout(() => guarded(loadLogs), 250);

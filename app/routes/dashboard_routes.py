@@ -69,3 +69,14 @@ def logs_page():
         title="Logs",
         subtitle="Riwayat event sistem, error koneksi, webhook, dan auto update.",
     )
+
+
+@dashboard_bp.get("/ai-logs")
+@login_required
+def ai_logs_page():
+    return render_template(
+        "pages/ai_logs.html",
+        page="ai_logs",
+        title="AI Logs",
+        subtitle="Jejak webhook, parsing pesan, auto reply, Ollama, WAHA send, dan memory job.",
+    )

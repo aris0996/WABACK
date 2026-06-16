@@ -199,9 +199,20 @@ def waha_webhook():
         window_seconds=60,
     )
     wa_number, message, display_name = _extract_message(payload)
+    log_event(
+        "INFO",
+        "WAHA webhook parsed",
+        {
+            "event": payload.get("event") or payload.get("type"),
+            "normalized_number": wa_number,
+            "number_valid": validate_wa_number(wa_number),
+            "body_len": len(message or ""),
+            "display_name": display_name,
+        },
+    )
     if not validate_wa_number(wa_number) or not message:
         data = payload.get("payload", payload)
-        log_event_throttled(
+        log_event(
             "INFO",
             "WAHA webhook ignored",
             {
@@ -216,8 +227,6 @@ def waha_webhook():
                 "body_len": len(message or ""),
                 "reason": "not a direct text message",
             },
-            key=f"ignored-webhook:{payload.get('event') or payload.get('type')}",
-            window_seconds=300,
         )
         return jsonify({"ok": True, "ignored": True})
 

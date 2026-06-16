@@ -365,6 +365,32 @@ def logs():
     return jsonify({"ok": True, "logs": [_with_local_time(row) for row in rows]})
 
 
+@api_bp.get("/ai-logs")
+@login_required
+def ai_logs():
+    limit = max(1, min(int(request.args.get("limit", 150)), 500))
+    q = request.args.get("q", "").strip()
+    like_terms = [
+        "%WAHA webhook%",
+        "%WAHA inbound%",
+        "%auto reply%",
+        "%Auto reply%",
+        "%Ollama%",
+        "%Memory job%",
+        "%memory generated%",
+    ]
+    where = ["(" + " OR ".join(["message LIKE ?"] * len(like_terms)) + ")"]
+    params = list(like_terms)
+    if q:
+        where.append("(message LIKE ? OR context_json LIKE ? OR level LIKE ?)")
+        like = f"%{q}%"
+        params.extend([like, like, like])
+    sql = "SELECT * FROM system_logs WHERE " + " AND ".join(where) + " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    rows = query_all(sql, tuple(params))
+    return jsonify({"ok": True, "logs": [_with_local_time(row) for row in rows]})
+
+
 @api_bp.get("/overview")
 @login_required
 def overview():

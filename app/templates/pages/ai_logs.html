@@ -1,0 +1,16 @@
+{% extends "app_layout.html" %}
+{% block content %}
+<section id="view-ai-logs" class="view active">
+  <div class="section-head">
+    <div>
+      <h2>AI Logs</h2>
+      <p class="note">Pantau alur: webhook received, parsed, saved, reply queued, sent, skipped, failed.</p>
+    </div>
+    <div class="inline-form narrow">
+      <input id="ai-log-filter" placeholder="Filter nomor, error, sent, skipped">
+      <button id="refresh-ai-logs" type="button">Refresh</button>
+    </div>
+  </div>
+  <div class="table-wrap"><table id="ai-logs-table"></table></div>
+</section>
+{% endblock %}
